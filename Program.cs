@@ -17,6 +17,7 @@ namespace DuplicateDestroyer
         {
             Console.WriteLine("Duplicate Destroyer");
             Console.WriteLine("'Boring Blackjack'");
+			Console.WriteLine("Licenced under Tiny Driplet Licence (can be found at cloudchiller.net)");
             Console.WriteLine("Copyright, Copydrunk, Copypone (c) 2012, Cloud Chiller");
             Console.WriteLine();
             if (args.Length > 0)
