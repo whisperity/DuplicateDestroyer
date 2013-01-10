@@ -98,7 +98,7 @@ namespace DuplicateDestroyer
                     File.Delete(file);
                     Console.WriteLine(" Deleted.");
                 }
-                catch (System.IO.IOException ex)
+                catch (Exception ex)
                 {
                     Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
                 }
@@ -115,34 +115,21 @@ namespace DuplicateDestroyer
             
             try
             {
-                if (filenamemode == false)
-                {
-                    foreach (string f in Directory.GetFiles(sDir))
+                    foreach (string f in Directory.GetFiles(sDir, "*", SearchOption.AllDirectories))
                     {
-                        CheckFile(ref mcsp, f);
+                        if (filenamemode == true)
+                        {
+                            CheckFilename(f);
+                        }
+                        else if (filenamemode == false)
+                        {
+                            CheckFile(ref mcsp, f);
+                        }
                     }
-
-                    foreach (string d in Directory.GetDirectories(sDir))
-                    {
-                        DirSearch(d);
-                    }
-                }
-                else
-                {
-                    foreach (string f in Directory.GetFiles(sDir))
-                    {
-                        CheckFilename(f);
-                    }
-
-                    foreach (string d in Directory.GetDirectories(sDir))
-                    {
-                        DirSearch(d);
-                    }
-                }
             }
-            catch (System.Exception excpt)
+            catch (Exception ex)
             {
-                Console.WriteLine(excpt.Message);
+                Console.WriteLine("Unable to check folder. An exception happened: " + ex.Message);
             }
         }
 
@@ -151,19 +138,14 @@ namespace DuplicateDestroyer
             int c = 0;
             try
             {
-                foreach (string f in Directory.GetFiles(sDir))
+                foreach (string f in Directory.GetFiles(sDir, "*", SearchOption.AllDirectories))
                 {
                     c++;
                 }
-
-                foreach (string d in Directory.GetDirectories(sDir))
-                {
-                    c += CountFiles(d);
-                }
             }
-            catch (System.Exception excpt)
+            catch (Exception ex)
             {
-                Console.WriteLine(excpt.Message);
+                Console.WriteLine("Unable to count files. An exception happened: " + ex.Message);
             }
             return c;
         }
