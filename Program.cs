@@ -1,17 +1,17 @@
 ﻿using System;
 using System.Collections.Generic;
-using System.Linq;
-using System.Text;
 using System.IO;
+using System.Linq;
 using System.Security.Cryptography;
 
 namespace DuplicateDestroyer
 {
-    class Program
+    static class Program
     {
-        static private List<string> md5hashes;
-        static bool filenamemode;
-        static private bool remove;
+        static private List<string> MD5Hashes;
+        static private bool UseFilenames;
+        static private bool ShouldRemove;
+        static private bool FileRemoveException;
 
         static void Main(string[] args)
         {
@@ -31,44 +31,53 @@ namespace DuplicateDestroyer
 
                 Environment.Exit(0);
             }
-                    
 
-                    Console.Write("Counting files. ");
-                    int c = CountFiles(System.IO.Directory.GetCurrentDirectory());
-                    Console.WriteLine(c + " files found.");
-                    md5hashes = new List<string>(c);
+            Console.Write("Counting files... ");
+            int c = CountFiles(System.IO.Directory.GetCurrentDirectory());
+            Console.WriteLine(c + " files found.");
+            MD5Hashes = new List<string>(c);
 
-                if (args.Contains<string>("-ok"))
-                    {
-                        remove = true;
-                        Console.WriteLine("Duplicate Destroyer is armed and dangerous. Files will be removed.");
-                    }
-                    else
-                    {
-                        remove = false;
-                        Console.WriteLine("Duplicate Destroyer is running in read-only mode.");
-                        Console.WriteLine("The files will only be checked, nothing will be removed.");
-                        Console.WriteLine("To actually remove the files, run the program with the argument: -ok");
-                    }
-                Console.WriteLine();
+            if (args.Contains<string>("-ok"))
+            {
+                ShouldRemove = true;
+                Console.WriteLine("Duplicate Destroyer is armed and dangerous. Files will be removed.");
+            }
+            else
+            {
+                ShouldRemove = false;
+                Console.WriteLine("Duplicate Destroyer is running in read-only mode.");
+                Console.WriteLine("The files will only be checked, nothing will be removed.");
+                Console.WriteLine("To actually remove the files, run the program with the argument: -ok");
+            }
+            Console.WriteLine();
 
-                    if (args.Contains<string>("-fn"))
-                    {
-                        filenamemode = true;
-                        Console.WriteLine("Looking through the directory for duplicates using filenames.");
-                    }
-                    else
-                    {
-                        filenamemode = false;
-                        Console.WriteLine("Looking through the directory for duplicates using hashes.");
-                    }
-                    Console.WriteLine();
+            if (args.Contains<string>("-fn"))
+            {
+                UseFilenames = true;
+                Console.WriteLine("Looking through the directory for duplicates using filenames.");
+            }
+            else
+            {
+                UseFilenames = false;
+                Console.WriteLine("Looking through the directory for duplicates using hashes.");
+            }
+            Console.WriteLine();
 
-                    DirSearch(System.IO.Directory.GetCurrentDirectory());
-            
+            // Actual work happens here.
+            FileRemoveException = false;
+            DirSearch(System.IO.Directory.GetCurrentDirectory());
+
             Console.WriteLine("Press any key to exit...");
             Console.ReadKey();
-            Environment.Exit(0);
+
+            if (FileRemoveException == true)
+            {
+                Environment.Exit(2);
+            }
+            else if (FileRemoveException == false)
+            {
+                Environment.Exit(0);
+            }
         }
 
         static void CheckFile(ref MD5CryptoServiceProvider mscp, string file)
@@ -83,31 +92,31 @@ namespace DuplicateDestroyer
                 md5b64 = Convert.ToBase64String(md5bytes);
             }
 
-            if (md5hashes.Contains(md5b64))
+            if (MD5Hashes.Contains(md5b64))
             {
                 Console.Write("File " + Path.GetFileName(file) + " (hash: " + md5b64 + ") is a duplicate.");
 
-                    try
+                try
+                {
+                    if (ShouldRemove == true)
                     {
-                        if ( remove == true )
-                        {
                         File.Delete(file);
                         Console.WriteLine(" Deleted.");
-                        }
-                        else if ( remove == false )
-                        {
-                            Console.WriteLine();
-                        }
                     }
-                    catch (System.IO.IOException ex)
+                    else if (ShouldRemove == false)
                     {
-                        Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
+                        Console.WriteLine();
                     }
-                
+                }
+                catch (System.IO.IOException ex)
+                {
+                    Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
+                    FileRemoveException = true;
+                }
             }
             else
             {
-                md5hashes.Add(md5b64);
+                MD5Hashes.Add(md5b64);
             }
         }
 
@@ -115,65 +124,68 @@ namespace DuplicateDestroyer
         {
             string filename = Path.GetFileNameWithoutExtension(file).ToLower();
 
-            if (md5hashes.Contains(filename))
+            if (MD5Hashes.Contains(filename))
             {
                 Console.Write("File " + Path.GetFileName(file) + " is a duplicate.");
 
-                    try
+                try
+                {
+                    if (ShouldRemove == true)
                     {
-                        if ( remove == true )
-                        {
 
                         File.Delete(file);
                         Console.WriteLine(" Deleted.");
-                        }
-                        else if ( remove == false )
-                        {
-                            Console.WriteLine();
-                        }
                     }
-                    catch (Exception ex)
+                    else if (ShouldRemove == false)
                     {
-                        Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
+                        Console.WriteLine();
                     }
-                
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
+                    FileRemoveException = true;
+                }
             }
             else
             {
-                md5hashes.Add(filename);
+                MD5Hashes.Add(filename);
             }
         }
 
-        static void DirSearch(string sDir)
+        static void DirSearch(string directory)
         {
             MD5CryptoServiceProvider mcsp = new MD5CryptoServiceProvider();
-            
+
             try
             {
-                    foreach (string f in Directory.GetFiles(sDir, "*", SearchOption.AllDirectories))
+                foreach (string f in Directory.GetFiles(directory, "*", SearchOption.AllDirectories))
+                {
+                    if (UseFilenames == true)
                     {
-                        if (filenamemode == true)
-                        {
-                            CheckFilename(f);
-                        }
-                        else if (filenamemode == false)
-                        {
-                            CheckFile(ref mcsp, f);
-                        }
+                        CheckFilename(f);
                     }
+                    else if (UseFilenames == false)
+                    {
+                        CheckFile(ref mcsp, f);
+                    }
+                }
             }
             catch (Exception ex)
             {
                 Console.WriteLine("Unable to check folder. An exception happened: " + ex.Message);
+                Console.WriteLine("Press any key to exit...");
+                Console.ReadKey();
+                Environment.Exit(1);
             }
         }
 
-        static int CountFiles(string sDir)
+        static int CountFiles(string directory)
         {
             int c = 0;
             try
             {
-                foreach (string f in Directory.GetFiles(sDir, "*", SearchOption.AllDirectories))
+                foreach (string f in Directory.GetFiles(directory, "*", SearchOption.AllDirectories))
                 {
                     c++;
                 }
@@ -181,6 +193,9 @@ namespace DuplicateDestroyer
             catch (Exception ex)
             {
                 Console.WriteLine("Unable to count files. An exception happened: " + ex.Message);
+                Console.WriteLine("Press any key to exit...");
+                Console.ReadKey();
+                Environment.Exit(1);
             }
             return c;
         }
