@@ -10,7 +10,8 @@ namespace DuplicateDestroyer
     class Program
     {
         static private List<string> md5hashes;
-        static bool filenamemode = false;
+        static bool filenamemode;
+        static private bool remove;
 
         static void Main(string[] args)
         {
@@ -19,38 +20,55 @@ namespace DuplicateDestroyer
             Console.WriteLine("Licenced under Tiny Driplet Licence (can be found at cloudchiller.net)");
             Console.WriteLine("Copyright, Copydrunk, Copypone (c) 2012, Cloud Chiller");
             Console.WriteLine();
-            if (args.Length > 0)
+
+            if (args.Contains<string>("-h"))
             {
-                if (args[0] == "-ok")
-                {
-                    if (args.Contains<string>("-fn"))
-                    {
-                        filenamemode = true;
-                    }
+                Console.WriteLine("HELP:");
+                Console.WriteLine("-h       Show this help text.");
+                Console.WriteLine("-ok      Safety disable. If omitted, will run in read-only mode.");
+                Console.WriteLine("-fn      Work by filenames (w/o extentions) instead of hashes.");
+                Console.WriteLine();
+
+                Environment.Exit(0);
+            }
+                    
+
                     Console.Write("Counting files. ");
                     int c = CountFiles(System.IO.Directory.GetCurrentDirectory());
                     Console.WriteLine(c + " files found.");
                     md5hashes = new List<string>(c);
-                    if (filenamemode == false)
+
+                if (args.Contains<string>("-ok"))
                     {
-                        Console.WriteLine("Looking through the directory for duplicates.");
+                        remove = true;
+                        Console.WriteLine("Duplicate Destroyer is armed and dangerous. Files will be removed.");
                     }
                     else
                     {
+                        remove = false;
+                        Console.WriteLine("Duplicate Destroyer is running in read-only mode.");
+                        Console.WriteLine("The files will only be checked, nothing will be removed.");
+                        Console.WriteLine("To actually remove the files, run the program with the argument: -ok");
+                    }
+                Console.WriteLine();
+
+                    if (args.Contains<string>("-fn"))
+                    {
+                        filenamemode = true;
                         Console.WriteLine("Looking through the directory for duplicates using filenames.");
                     }
+                    else
+                    {
+                        filenamemode = false;
+                        Console.WriteLine("Looking through the directory for duplicates using hashes.");
+                    }
+                    Console.WriteLine();
+
                     DirSearch(System.IO.Directory.GetCurrentDirectory());
-                }
-            }
-            else
-            {
-                Console.WriteLine("HELP:");
-                Console.WriteLine("-ok      Safety disable, Has to be first argument.");
-                Console.WriteLine("-fn      Work by filenames (w/o extentions) instead of hashes.");
-                Console.WriteLine();
-            }
-            Console.WriteLine("Press any key to continue.");
+            
+            Console.WriteLine("Press any key to exit...");
             Console.ReadKey();
+            Environment.Exit(0);
         }
 
         static void CheckFile(ref MD5CryptoServiceProvider mscp, string file)
@@ -69,15 +87,23 @@ namespace DuplicateDestroyer
             {
                 Console.Write("File " + Path.GetFileName(file) + " (hash: " + md5b64 + ") is a duplicate.");
 
-                try
-                {
-                    File.Delete(file);
-                    Console.WriteLine(" Deleted.");
-                }
-                catch (System.IO.IOException ex)
-                {
-                    Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
-                }
+                    try
+                    {
+                        if ( remove == true )
+                        {
+                        File.Delete(file);
+                        Console.WriteLine(" Deleted.");
+                        }
+                        else if ( remove == false )
+                        {
+                            Console.WriteLine();
+                        }
+                    }
+                    catch (System.IO.IOException ex)
+                    {
+                        Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
+                    }
+                
             }
             else
             {
@@ -93,15 +119,24 @@ namespace DuplicateDestroyer
             {
                 Console.Write("File " + Path.GetFileName(file) + " is a duplicate.");
 
-                try
-                {
-                    File.Delete(file);
-                    Console.WriteLine(" Deleted.");
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
-                }
+                    try
+                    {
+                        if ( remove == true )
+                        {
+
+                        File.Delete(file);
+                        Console.WriteLine(" Deleted.");
+                        }
+                        else if ( remove == false )
+                        {
+                            Console.WriteLine();
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
+                    }
+                
             }
             else
             {
