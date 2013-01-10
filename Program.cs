@@ -9,15 +9,14 @@ namespace DuplicateDestroyer
 {
     class Program
     {
-        static private string[] derpy;
-        static int currentcount = 0;
+        static private List<string> md5hashes;
         static bool filenamemode = false;
 
         static void Main(string[] args)
         {
             Console.WriteLine("Duplicate Destroyer");
             Console.WriteLine("'Boring Blackjack'");
-			Console.WriteLine("Licenced under Tiny Driplet Licence (can be found at cloudchiller.net)");
+            Console.WriteLine("Licenced under Tiny Driplet Licence (can be found at cloudchiller.net)");
             Console.WriteLine("Copyright, Copydrunk, Copypone (c) 2012, Cloud Chiller");
             Console.WriteLine();
             if (args.Length > 0)
@@ -31,7 +30,7 @@ namespace DuplicateDestroyer
                     Console.Write("Counting files. ");
                     int c = CountFiles(System.IO.Directory.GetCurrentDirectory());
                     Console.WriteLine(c + " files found.");
-                    derpy = new string[c];
+                    md5hashes = new List<string>(c);
                     if (filenamemode == false)
                     {
                         Console.WriteLine("Looking through the directory for duplicates.");
@@ -54,69 +53,77 @@ namespace DuplicateDestroyer
             Console.ReadKey();
         }
 
+        static void CheckFile(ref MD5CryptoServiceProvider mscp, string file)
+        {
+            string md5b64;
+
+            using (FileStream stream = File.OpenRead(file))
+            {
+                byte[] filebytes = new byte[stream.Length + 1];
+                stream.Read(filebytes, 0, Convert.ToInt32(stream.Length));
+                byte[] md5bytes = mscp.ComputeHash(filebytes);
+                md5b64 = Convert.ToBase64String(md5bytes);
+            }
+
+            if (md5hashes.Contains(md5b64))
+            {
+                Console.Write("File " + Path.GetFileName(file) + " (hash: " + md5b64 + ") is a duplicate.");
+
+                try
+                {
+                    File.Delete(file);
+                    Console.WriteLine(" Deleted.");
+                }
+                catch (System.IO.IOException ex)
+                {
+                    Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
+                }
+            }
+            else
+            {
+                md5hashes.Add(md5b64);
+            }
+        }
+
+        static void CheckFilename(string file)
+        {
+            string filename = Path.GetFileNameWithoutExtension(file).ToLower();
+
+            if (md5hashes.Contains(filename))
+            {
+                Console.Write("File " + Path.GetFileName(file) + " is a duplicate.");
+
+                try
+                {
+                    File.Delete(file);
+                    Console.WriteLine(" Deleted.");
+                }
+                catch (System.IO.IOException ex)
+                {
+                    Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
+                }
+            }
+            else
+            {
+                md5hashes.Add(filename);
+            }
+        }
+
         static void DirSearch(string sDir)
         {
             MD5CryptoServiceProvider mcsp = new MD5CryptoServiceProvider();
+            
             try
             {
                 if (filenamemode == false)
                 {
                     foreach (string f in Directory.GetFiles(sDir))
                     {
-                        FileStream file = File.OpenRead(f);
-                        byte[] exebytes = new byte[file.Length + 1];
-                        file.Read(exebytes, 0, Convert.ToInt32(file.Length));
-                        byte[] md5bytes = mcsp.ComputeHash(exebytes);
-                        string checkthesedubs = Convert.ToBase64String(md5bytes);
-                        if (derpy.Contains<string>(checkthesedubs))
-                        {
-                            Console.Write("File " + Path.GetFileName(f) + ", MD5 Base64 " + checkthesedubs + " is a duplicate.");
-                            try
-                            {
-                                file.Close();
-                                File.Delete(f);
-                                Console.WriteLine(" Deleted.");
-                            }
-                            catch (System.Exception except)
-                            {
-                                Console.WriteLine(" ERROR: " + except.Message);
-                            }
-                        }
-                        else
-                        {
-                            derpy[currentcount] = checkthesedubs;
-                            currentcount++;
-                        }
+                        CheckFile(ref mcsp, f);
                     }
 
                     foreach (string d in Directory.GetDirectories(sDir))
                     {
-                        foreach (string f in Directory.GetFiles(d))
-                        {
-                            FileStream file = File.OpenRead(f);
-                            byte[] exebytes = new byte[file.Length + 1];
-                            file.Read(exebytes, 0, Convert.ToInt32(file.Length));
-                            byte[] md5bytes = mcsp.ComputeHash(exebytes);
-                            string checkthesedubs = Convert.ToBase64String(md5bytes);
-                            if (derpy.Contains<string>(checkthesedubs))
-                            {
-                                Console.Write("File " + Path.GetFileName(f) + ", MD5 Base64 " + checkthesedubs + " is a duplicate.");
-                                try
-                                {
-                                    File.Delete(f);
-                                    Console.WriteLine(" Deleted.");
-                                }
-                                catch (System.Exception except)
-                                {
-                                    Console.WriteLine(" ERROR: " + except.Message);
-                                }
-                            }
-                            else
-                            {
-                                derpy[currentcount] = checkthesedubs;
-                                currentcount++;
-                            }
-                        }
                         DirSearch(d);
                     }
                 }
@@ -124,53 +131,11 @@ namespace DuplicateDestroyer
                 {
                     foreach (string f in Directory.GetFiles(sDir))
                     {
-                        string checkthesedubs = Path.GetFileNameWithoutExtension(f);
-                        checkthesedubs = checkthesedubs.ToLower();
-                        if (derpy.Contains<string>(checkthesedubs))
-                        {
-                            Console.Write("File " + Path.GetFileName(f) + " is a duplicate.");
-                            try
-                            {
-                                File.Delete(f);
-                                Console.WriteLine(" Deleted.");
-                            }
-                            catch (System.Exception except)
-                            {
-                                Console.WriteLine(" ERROR: " + except.Message);
-                            }
-                        }
-                        else
-                        {
-                            derpy[currentcount] = checkthesedubs;
-                            currentcount++;
-                        }
+                        CheckFilename(f);
                     }
 
                     foreach (string d in Directory.GetDirectories(sDir))
                     {
-                        foreach (string f in Directory.GetFiles(d))
-                        {
-                            string checkthesedubs = Path.GetFileNameWithoutExtension(f);
-                            checkthesedubs = checkthesedubs.ToLower();
-                            if (derpy.Contains<string>(checkthesedubs))
-                            {
-                                Console.Write("File " + Path.GetFileName(f) + " is a duplicate.");
-                                try
-                                {
-                                    File.Delete(f);
-                                    Console.WriteLine(" Deleted.");
-                                }
-                                catch (System.Exception except)
-                                {
-                                    Console.WriteLine(" ERROR: " + except.Message);
-                                }
-                            }
-                            else
-                            {
-                                derpy[currentcount] = checkthesedubs;
-                                currentcount++;
-                            }
-                        }
                         DirSearch(d);
                     }
                 }
@@ -193,11 +158,7 @@ namespace DuplicateDestroyer
 
                 foreach (string d in Directory.GetDirectories(sDir))
                 {
-                    foreach (string f in Directory.GetFiles(d))
-                    {
-                        c++;
-                    }
-                    DirSearch(d);
+                    c += CountFiles(d);
                 }
             }
             catch (System.Exception excpt)
