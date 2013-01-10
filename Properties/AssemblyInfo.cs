@@ -6,9 +6,9 @@ using System.Runtime.InteropServices;
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
 [assembly: AssemblyTitle("Duplicate Destroyer")]
-[assembly: AssemblyDescription("")]
+[assembly: AssemblyDescription("Remove duplicates from a directory structure")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("")]
+[assembly: AssemblyCompany("Cloud Chiller")]
 [assembly: AssemblyProduct("Duplicate Destroyer")]
 [assembly: AssemblyCopyright("Copyright, Copydrunk, Copypone © Cloud Chiller 2012")]
 [assembly: AssemblyTrademark("")]
