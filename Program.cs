@@ -29,7 +29,7 @@ namespace DuplicateDestroyer
                         filenamemode = true;
                     }
                     Console.Write("Counting files. ");
-                    int c = CountFiles(System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location));
+                    int c = CountFiles(System.IO.Directory.GetCurrentDirectory());
                     Console.WriteLine(c + " files found.");
                     derpy = new string[c];
                     if (filenamemode == false)
@@ -40,7 +40,7 @@ namespace DuplicateDestroyer
                     {
                         Console.WriteLine("Looking through the directory for duplicates using filenames.");
                     }
-                    DirSearch(System.IO.Path.GetDirectoryName(System.Reflection.Assembly.GetExecutingAssembly().Location));
+                    DirSearch(System.IO.Directory.GetCurrentDirectory());
                 }
             }
             else
