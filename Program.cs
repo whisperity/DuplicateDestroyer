@@ -12,6 +12,7 @@ namespace DuplicateDestroyer
         static private bool UseFilenames;
         static private bool ShouldRemove;
         static private bool FileRemoveException;
+        static private bool Verbose;
 
         static void Main(string[] args)
         {
@@ -27,6 +28,7 @@ namespace DuplicateDestroyer
                 Console.WriteLine("-h       Show this help text.");
                 Console.WriteLine("-ok      Safety disable. If omitted, will run in read-only mode.");
                 Console.WriteLine("-fn      Work by filenames (w/o extentions) instead of hashes.");
+                Console.WriteLine("-v       Verbose mode");
                 Console.WriteLine();
 
                 Environment.Exit(0);
@@ -63,6 +65,15 @@ namespace DuplicateDestroyer
             }
             Console.WriteLine();
 
+            if (args.Contains<string>("-v"))
+            {
+                Verbose = true;
+            }
+            else
+            {
+                Verbose = false;
+            }
+
             // Actual work happens here.
             FileRemoveException = false;
             DirSearch(System.IO.Directory.GetCurrentDirectory());
@@ -84,12 +95,22 @@ namespace DuplicateDestroyer
         {
             string md5b64;
 
+            if (Verbose == true)
+            {
+                Console.Write("Reading file " + Path.GetFileName(file) + "...");
+            }
+
             using (FileStream stream = File.OpenRead(file))
             {
                 byte[] filebytes = new byte[stream.Length + 1];
                 stream.Read(filebytes, 0, Convert.ToInt32(stream.Length));
                 byte[] md5bytes = mscp.ComputeHash(filebytes);
                 md5b64 = Convert.ToBase64String(md5bytes);
+            }
+
+            if (Verbose == true)
+            {
+                Console.WriteLine(" Read. Hash: " + md5b64 + ".");
             }
 
             if (MD5Hashes.Contains(md5b64))
@@ -122,7 +143,17 @@ namespace DuplicateDestroyer
 
         static void CheckFilename(string file)
         {
+            if (Verbose == true)
+            {
+                Console.Write("Looking at file " + Path.GetFileName(file) + "...");
+            }
+
             string filename = Path.GetFileNameWithoutExtension(file).ToLower();
+
+            if (Verbose == true)
+            {
+                Console.WriteLine(" Seen.");
+            }
 
             if (MD5Hashes.Contains(filename))
             {
