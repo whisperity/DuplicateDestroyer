@@ -9,6 +9,7 @@ namespace DuplicateDestroyer
     static class Program
     {
         static private List<string> MD5Hashes;
+        static private Dictionary<string, string> Files;
         static private bool UseFilenames;
         static private bool ShouldRemove;
         static private bool FileRemoveException;
@@ -16,6 +17,8 @@ namespace DuplicateDestroyer
 
         static void Main(string[] args)
         {
+            FileRemoveException = false;
+
             Console.WriteLine("Duplicate Destroyer");
             Console.WriteLine("'Boring Blackjack'");
             Console.WriteLine("Licenced under Tiny Driplet Licence (can be found at cloudchiller.net)");
@@ -38,6 +41,8 @@ namespace DuplicateDestroyer
             int c = CountFiles(System.IO.Directory.GetCurrentDirectory());
             Console.WriteLine(c + " files found.");
             MD5Hashes = new List<string>(c);
+            Files = new Dictionary<string, string>(c);
+            Console.WriteLine();
 
             if (args.Contains<string>("-ok"))
             {
@@ -73,10 +78,19 @@ namespace DuplicateDestroyer
             {
                 Verbose = false;
             }
+            Verbose = true;
 
-            // Actual work happens here.
-            FileRemoveException = false;
             DirSearch(System.IO.Directory.GetCurrentDirectory());
+            Console.WriteLine();
+
+            IEnumerable<IGrouping<string, KeyValuePair<string, string>>> duplicate_hashes =
+                Files.GroupBy(f => f.Value).Where(v => v.Count() > 1);
+
+            Console.WriteLine("The following hashes are duplicates: ");
+            foreach (IGrouping<string, KeyValuePair<string,string>> hash in duplicate_hashes)
+            {
+                Console.WriteLine(hash.Key);
+            }
 
             Console.WriteLine("Press any key to exit...");
             Console.ReadKey();
@@ -91,7 +105,7 @@ namespace DuplicateDestroyer
             }
         }
 
-        static void CheckFile(ref MD5CryptoServiceProvider mscp, string file)
+        static string CalculateHash(ref MD5CryptoServiceProvider mscp, string file)
         {
             string md5b64;
 
@@ -112,6 +126,13 @@ namespace DuplicateDestroyer
             {
                 Console.WriteLine(" Read. Hash: " + md5b64 + ".");
             }
+
+            return md5b64;
+        }
+
+        static void CheckFile(ref MD5CryptoServiceProvider mscp, string file)
+        {
+            string md5b64 = file;
 
             if (MD5Hashes.Contains(md5b64))
             {
@@ -163,7 +184,6 @@ namespace DuplicateDestroyer
                 {
                     if (ShouldRemove == true)
                     {
-
                         File.Delete(file);
                         Console.WriteLine(" Deleted.");
                     }
@@ -200,6 +220,8 @@ namespace DuplicateDestroyer
                     {
                         CheckFile(ref mcsp, f);
                     }
+
+                    Files.Add(f, CalculateHash(ref mcsp, f));
                 }
             }
             catch (Exception ex)
