@@ -83,15 +83,9 @@ namespace DuplicateDestroyer
             DirSearch(System.IO.Directory.GetCurrentDirectory());
             Console.WriteLine();
 
-            IEnumerable<IGrouping<string, KeyValuePair<string, string>>> duplicate_hashes =
-                Files.GroupBy(f => f.Value).Where(v => v.Count() > 1);
-
-            Console.WriteLine("The following hashes are duplicates: ");
-            foreach (IGrouping<string, KeyValuePair<string,string>> hash in duplicate_hashes)
-            {
-                Console.WriteLine(hash.Key);
-            }
-
+            AnalyzeFilelist();
+            Console.WriteLine();
+            
             Console.WriteLine("Press any key to exit...");
             Console.ReadKey();
 
@@ -102,6 +96,90 @@ namespace DuplicateDestroyer
             else if (FileRemoveException == false)
             {
                 Environment.Exit(0);
+            }
+        }
+
+        static void AnalyzeFilelist()
+        {
+            IEnumerable<string> duplicate_hashes =
+                Files.GroupBy(f => f.Value).Where(v => v.Count() > 1).Select(h => h.Key);
+                        
+            foreach (string hash in duplicate_hashes)
+            {
+                IEnumerable<string> duplicates = Files.Where(d => d.Value == hash).Select(s => s.Key);
+
+                Action(hash, duplicates.ToList());
+            }
+        }
+
+        static void Action(string hash, List<string> duplicates)
+        {
+            SortedList<DateTime, string> duplicate_ordered = new SortedList<DateTime, string>(duplicates.Count);
+
+            foreach (string file in duplicates)
+            {
+                FileInfo fi = new FileInfo(file);
+                duplicate_ordered.Add(fi.LastAccessTime, file);
+            }
+
+            bool good_selection = false;
+            int choice = 0;
+
+            while (!good_selection)
+            {
+                Console.WriteLine("=================================");
+                Console.WriteLine("The following files are duplicates of each other: ");
+
+                Console.WriteLine("Hash: " + hash);
+
+                foreach (KeyValuePair<DateTime, string> duplicate in duplicate_ordered)
+                {
+                    Console.WriteLine((duplicate_ordered.IndexOfValue(duplicate.Value) + 1) + ". " + duplicate.Value);
+                    Console.Write("Last modified: " +
+                        duplicate.Key.ToString(System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat));
+
+                    if (duplicate_ordered.IndexOfValue(duplicate.Value) == 0)
+                    {
+                        Console.Write(" (oldest)");
+                    }
+
+                    if (duplicate_ordered.IndexOfValue(duplicate.Value) == duplicate_ordered.Count - 1)
+                    {
+                        Console.Write(" (newest)");
+                    }
+
+                    Console.WriteLine();
+                }
+                Console.WriteLine((duplicates.Count + 1) + ". Take no action");
+
+                try
+                {
+                    Console.Write("Select the file you want TO KEEP. (The rest will be deleted.): ");
+                    choice = Convert.ToInt32(Console.ReadLine());
+
+                    good_selection = true;
+
+                    if (choice < 1 || choice > duplicate_ordered.Count + 1)
+                    {
+                        throw new Exception("You entered an invalid choice.");
+                    }
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine("Unable to parse input. An exception happened: " + ex.Message);
+                    good_selection = false;
+                }
+            }
+
+            if (choice != duplicate_ordered.Count + 1 && choice != 0)
+            {
+                Console.WriteLine("Scheduled to remove " + duplicate_ordered.Values[choice - 1]);
+                duplicate_ordered.RemoveAt(choice - 1);
+            }
+            else if (choice == duplicate_ordered.Count + 1 || choice == 0)
+            {
+                Console.WriteLine("The files will be kept.");
+                duplicate_ordered.Clear();
             }
         }
 
