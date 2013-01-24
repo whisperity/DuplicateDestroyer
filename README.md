@@ -24,7 +24,6 @@ Parameters
     
     -h    Show the help screen
     -ok   Safety disable. If omitted, will run in read-only mode.
-    -fn   Work by filenames (w/o extentions) instead of hashes.
     -v    Verbose mode
 
 Exit codes
