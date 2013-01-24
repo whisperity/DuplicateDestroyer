@@ -7,7 +7,9 @@ How to use?
 -----------
 * Put the executable into the top folder of the tree you want to check.
 * _Optional step_ To only check for duplicates (but to **avoid** accidentally removing them), run the program normally.
-* Run it from the command-line as `DuplicateDestroyer.exe -ok`. This run will actually delete the files.
+* Run it from the command-line as `DuplicateDestroyer.exe -ok`. (This arms the application.)
+* DuplicateDestroyer will ask you to specify which file **to keep** in case there are duplicates. The rest of the files will be deleted.
+* Alternatively, you might specify `-o` or `-n` to auto-schedule the oldest or newest files.
 
 Implications/Limitations
 ------------------------

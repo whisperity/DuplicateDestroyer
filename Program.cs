@@ -7,12 +7,12 @@ namespace DuplicateDestroyer
 {
     static class Program
     {
-        static private Dictionary<string, string> Files;
-        static private bool ShouldRemove;
-        static private bool FileRemoveException;
-        static private bool Verbose;
+        static Dictionary<string, string> Files;
         static bool AutoOldest;
         static bool AutoNewest;
+        static bool ShouldRemove;
+        static bool Verbose;
+        static bool FileRemoveException;
 
         static void Main(string[] args)
         {
@@ -151,7 +151,8 @@ namespace DuplicateDestroyer
                 }
                 else if (AutoOldest == false && AutoNewest == false)
                 {
-                    files_in_list = SelectFileToKeep(DuplicateLists.Keys[DuplicateLists.IndexOfValue(duplicate_list)], duplicate_ordered);
+                    files_in_list = SelectFileToKeep(
+                        DuplicateLists.Keys[DuplicateLists.IndexOfValue(duplicate_list)], duplicate_ordered);
                 }
 
                 if (files_in_list.Count != 0)
@@ -163,11 +164,19 @@ namespace DuplicateDestroyer
 
             foreach (List<string> removes in RemoveLists.Values)
             {
-                Console.WriteLine("Removing duplicates of hash: " + RemoveLists.Keys[RemoveLists.IndexOfValue(removes)]);
+                if (Verbose == true)
+                {
+                    Console.WriteLine("Removing duplicates of hash: " + RemoveLists.Keys[RemoveLists.IndexOfValue(removes)]);
+                }
 
                 foreach (string file in removes)
                 {
                     RemoveFile(file);
+                }
+
+                if (Verbose == true)
+                {
+                    Console.WriteLine();
                 }
             }
 
@@ -184,38 +193,38 @@ namespace DuplicateDestroyer
             }
         }
 
-        static void AnalyzeFilelist(out SortedList<string,List<string>> duplicate_lists)
+        static void AnalyzeFilelist(out SortedList<string,List<string>> duplicateLists)
         {
             IEnumerable<string> duplicate_hashes =
                 Files.GroupBy(f => f.Value).Where(v => v.Count() > 1).Select(h => h.Key);
-
-            duplicate_lists = new SortedList<string, List<string>>();
+            
+            duplicateLists = new SortedList<string, List<string>>();
             
             foreach (string hash in duplicate_hashes)
             {
                 IEnumerable<string> duplicates = Files.Where(d => d.Value == hash).Select(s => s.Key);
-                duplicate_lists.Add(hash, duplicates.ToList());
+                duplicateLists.Add(hash, duplicates.ToList());
             }
         }
 
-        static List<string> SelectFileToKeep(string hash, SortedList<DateTime,string> duplicate_ordered)
+        static List<string> SelectFileToKeep(string hash, SortedList<DateTime,string> fileList)
         {
-            bool good_selection = false;
-            int choice = 0;
+            bool selection_success = false;
+            uint choice = 0;
 
-            while (!good_selection)
+            while (!selection_success)
             {
                 Console.WriteLine("=================================");
                 Console.WriteLine("The following files are duplicates of each other: ");
 
                 if (Verbose == true)
                 {
-                    Console.WriteLine("Hash: " + hash);
+                    Console.WriteLine("(Hash: " + hash + ")");
                 }
 
-                foreach (KeyValuePair<DateTime, string> duplicate in duplicate_ordered)
+                foreach (KeyValuePair<DateTime, string> duplicate in fileList)
                 {
-                    Console.Write((duplicate_ordered.IndexOfValue(duplicate.Value) + 1) + ". ");
+                    Console.Write((fileList.IndexOfValue(duplicate.Value) + 1) + ". ");
 
                     if (Verbose == true)
                     {
@@ -229,28 +238,28 @@ namespace DuplicateDestroyer
                     Console.Write("Last modified: " +
                         duplicate.Key.ToString(System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat));
 
-                    if (duplicate_ordered.IndexOfValue(duplicate.Value) == 0)
+                    if (fileList.IndexOfValue(duplicate.Value) == 0)
                     {
                         Console.Write(" (oldest)");
                     }
 
-                    if (duplicate_ordered.IndexOfValue(duplicate.Value) == duplicate_ordered.Count - 1)
+                    if (fileList.IndexOfValue(duplicate.Value) == fileList.Count - 1)
                     {
                         Console.Write(" (newest)");
                     }
 
                     Console.WriteLine();
                 }
-                Console.WriteLine((duplicate_ordered.Count + 1) + ". Take no action");
+                Console.WriteLine((fileList.Count + 1) + ". Take no action");
 
                 try
                 {
                     Console.Write("Select the file you want TO KEEP. (The rest will be deleted.): ");
-                    choice = Convert.ToInt32(Console.ReadLine());
+                    choice = Convert.ToUInt32(Console.ReadLine());
 
-                    good_selection = true;
+                    selection_success = true;
 
-                    if (choice < 1 || choice > duplicate_ordered.Count + 1)
+                    if (choice < 1 || choice > fileList.Count + 1)
                     {
                         throw new Exception("You entered an invalid option. Please choose an option printed on the menu.");
                     }
@@ -258,32 +267,32 @@ namespace DuplicateDestroyer
                 catch (Exception ex)
                 {
                     Console.WriteLine("Unable to parse choice. An exception happened: " + ex.Message);
-                    good_selection = false;
+                    selection_success = false;
                 }
             }
 
-            if (choice != duplicate_ordered.Count + 1 && choice != 0)
+            if (choice != fileList.Count + 1 && choice != 0)
             {
                 Console.Write("Scheduled to keep file: ");
 
                 if (Verbose == true)
                 {
-                    Console.WriteLine(duplicate_ordered.Values[choice - 1]);
+                    Console.WriteLine(fileList.Values[(int)choice - 1]);
                 }
                 else if (Verbose == false)
                 {
-                    Console.WriteLine(Path.GetFileName(duplicate_ordered.Values[choice - 1]));
+                    Console.WriteLine(Path.GetFileName(fileList.Values[(int)choice - 1]));
                 }
 
-                duplicate_ordered.RemoveAt(choice - 1);
+                fileList.RemoveAt((int)choice - 1);
             }
-            else if (choice == duplicate_ordered.Count + 1 || choice == 0)
+            else if (choice == fileList.Count + 1 || choice == 0)
             {
                 Console.WriteLine("All files will be kept.");
-                duplicate_ordered.Clear();
+                fileList.Clear();
             }
 
-            return duplicate_ordered.Values.ToList();
+            return fileList.Values.ToList();
         }
 
         static string CalculateHash(ref System.Security.Cryptography.MD5CryptoServiceProvider mcsp, string file)
@@ -319,7 +328,7 @@ namespace DuplicateDestroyer
             {
                 if (ShouldRemove == true)
                 {
-                    //File.Delete(file);
+                    File.Delete(file);
                     Console.WriteLine(" Deleted.");
                 }
                 else if (ShouldRemove == false)
