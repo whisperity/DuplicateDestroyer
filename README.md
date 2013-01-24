@@ -22,15 +22,18 @@ Parameters
 ----------
     DuplicateDestroyer.exe
     
-    -h    Show the help screen
+    -h    Show this help text.
     -ok   Safety disable. If omitted, will run in read-only mode.
     -v    Verbose mode
+    -o    Automatically schedule the OLDEST file for keeping.
+    -n    Automatically schedule the NEWEST file for keeping.
 
 Exit codes
 ----------
     0   Program terminated normally
     1   Exception happened while counting files or iterating the tree
     2   One or more files failed to be deleted
+    3   Configuration error (i.e.: using both -o and -n switches)
 
 License
 -------

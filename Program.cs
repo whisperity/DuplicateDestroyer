@@ -11,6 +11,8 @@ namespace DuplicateDestroyer
         static private bool ShouldRemove;
         static private bool FileRemoveException;
         static private bool Verbose;
+        static bool AutoOldest;
+        static bool AutoNewest;
 
         static void Main(string[] args)
         {
@@ -28,16 +30,15 @@ namespace DuplicateDestroyer
                 Console.WriteLine("-h       Show this help text.");
                 Console.WriteLine("-ok      Safety disable. If omitted, will run in read-only mode.");
                 Console.WriteLine("-v       Verbose mode");
+                Console.WriteLine("-o       Automatically schedule the OLDEST file for keeping.");
+                Console.WriteLine("-n       Automatically schedule the NEWEST file for keeping.");
+                Console.WriteLine();
+                Console.WriteLine("Omitting both -o and -n results in the user being queried about which file to keep.");
+                Console.WriteLine("Using both -o and -n with each other is an error.");
                 Console.WriteLine();
 
                 Environment.Exit(0);
             }
-
-            Console.Write("Counting files... ");
-            int c = CountFiles(Directory.GetCurrentDirectory());
-            Console.WriteLine(c + " files found.");
-            Files = new Dictionary<string, string>(c);
-            Console.WriteLine();
 
             if (args.Contains<string>("-ok"))
             {
@@ -61,7 +62,39 @@ namespace DuplicateDestroyer
             {
                 Verbose = false;
             }
-            Verbose = true;
+            
+            if (args.Contains<string>("-o"))
+            {
+                AutoOldest = true;
+            }
+            else
+            {
+                AutoOldest = false;
+            }
+
+            if (args.Contains<string>("-n"))
+            {
+                AutoNewest = true;
+            }
+            else
+            {
+                AutoNewest = false;
+            }
+
+            if (AutoOldest == true && AutoNewest == true)
+            {
+                Console.WriteLine("ERROR: Conflicting arguments.");
+                Console.WriteLine("It's an error to use -o and -n together.");
+                Console.WriteLine();
+
+                Environment.Exit(3);
+            }
+
+            Console.Write("Counting files... ");
+            int c = CountFiles(Directory.GetCurrentDirectory());
+            Console.WriteLine(c + " files found.");
+            Files = new Dictionary<string, string>(c);
+            Console.WriteLine();
 
             DirSearch(System.IO.Directory.GetCurrentDirectory());
             Console.WriteLine();
@@ -73,11 +106,57 @@ namespace DuplicateDestroyer
             SortedList<string, List<string>> RemoveLists = new SortedList<string, List<string>>(DuplicateLists.Count);
             foreach (List<string> duplicate_list in DuplicateLists.Values)
             {
-                List<string> removes = SelectFileToKeep(DuplicateLists.Keys[DuplicateLists.IndexOfValue(duplicate_list)], duplicate_list);
+                SortedList<DateTime, string> duplicate_ordered = new SortedList<DateTime, string>(duplicate_list.Count);
 
-                if (removes.Count != 0)
+                foreach (string file in duplicate_list)
                 {
-                    RemoveLists.Add(DuplicateLists.Keys[DuplicateLists.IndexOfValue(duplicate_list)], removes);
+                    FileInfo fi = new FileInfo(file);
+                    duplicate_ordered.Add(fi.LastAccessTime, file);
+                }
+
+                List<string> files_in_list = null;
+
+                if (AutoOldest == true && AutoNewest == false)
+                {
+                    files_in_list = duplicate_ordered.Values.ToList();
+
+                    Console.Write("Automatically scheduled to keep OLDEST file: ");
+
+                    if ( Verbose == true )
+                    {
+                        Console.WriteLine(files_in_list[0]);
+                    }
+                    else if ( Verbose == false )
+                    {
+                        Console.WriteLine(Path.GetFileName(files_in_list[0]));
+                    }
+
+                    files_in_list.RemoveAt(0);
+                }
+                else if (AutoOldest == false && AutoNewest == true)
+                {
+                    files_in_list = duplicate_ordered.Values.ToList();
+
+                    Console.Write("Automatically scheduled to keep NEWEST file: ");
+
+                    if (Verbose == true)
+                    {
+                        Console.WriteLine(files_in_list[files_in_list.Count - 1]);
+                    }
+                    else if (Verbose == false)
+                    {
+                        Console.WriteLine(Path.GetFileName(files_in_list[files_in_list.Count -1 ]));
+                    }
+
+                }
+                else if (AutoOldest == false && AutoNewest == false)
+                {
+                    files_in_list = SelectFileToKeep(DuplicateLists.Keys[DuplicateLists.IndexOfValue(duplicate_list)], duplicate_ordered);
+                }
+
+                if (files_in_list.Count != 0)
+                {
+                    RemoveLists.Add(DuplicateLists.Keys[DuplicateLists.IndexOfValue(duplicate_list)], files_in_list);
                 }
             }
             Console.WriteLine();
@@ -119,16 +198,8 @@ namespace DuplicateDestroyer
             }
         }
 
-        static List<string> SelectFileToKeep(string hash, List<string> duplicates)
+        static List<string> SelectFileToKeep(string hash, SortedList<DateTime,string> duplicate_ordered)
         {
-            SortedList<DateTime, string> duplicate_ordered = new SortedList<DateTime, string>(duplicates.Count);
-
-            foreach (string file in duplicates)
-            {
-                FileInfo fi = new FileInfo(file);
-                duplicate_ordered.Add(fi.LastAccessTime, file);
-            }
-
             bool good_selection = false;
             int choice = 0;
 
@@ -170,7 +241,7 @@ namespace DuplicateDestroyer
 
                     Console.WriteLine();
                 }
-                Console.WriteLine((duplicates.Count + 1) + ". Take no action");
+                Console.WriteLine((duplicate_ordered.Count + 1) + ". Take no action");
 
                 try
                 {
