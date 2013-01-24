@@ -83,9 +83,32 @@ namespace DuplicateDestroyer
             DirSearch(System.IO.Directory.GetCurrentDirectory());
             Console.WriteLine();
 
-            AnalyzeFilelist();
+            SortedList<string,List<string>> DuplicateLists;
+            AnalyzeFilelist(out DuplicateLists);
             Console.WriteLine();
-            
+
+            SortedList<string, List<string>> RemoveLists = new SortedList<string, List<string>>(DuplicateLists.Count);
+            foreach (List<string> duplicate_list in DuplicateLists.Values)
+            {
+                List<string> removes = Action(DuplicateLists.Keys[DuplicateLists.IndexOfValue(duplicate_list)], duplicate_list);
+
+                if (removes.Count != 0)
+                {
+                    RemoveLists.Add(DuplicateLists.Keys[DuplicateLists.IndexOfValue(duplicate_list)], removes);
+                }
+            }
+            Console.WriteLine();
+
+            foreach (List<string> removes in RemoveLists.Values)
+            {
+                Console.WriteLine("Removing duplicates of hash: " + RemoveLists.Keys[RemoveLists.IndexOfValue(removes)]);
+
+                foreach (string file in removes)
+                {
+                    RemoveFile(file);
+                }
+            }
+
             Console.WriteLine("Press any key to exit...");
             Console.ReadKey();
 
@@ -99,20 +122,22 @@ namespace DuplicateDestroyer
             }
         }
 
-        static void AnalyzeFilelist()
+        static void AnalyzeFilelist(out SortedList<string,List<string>> duplicate_lists)
         {
             IEnumerable<string> duplicate_hashes =
                 Files.GroupBy(f => f.Value).Where(v => v.Count() > 1).Select(h => h.Key);
-                        
+
+            duplicate_lists = new SortedList<string, List<string>>();
+            
             foreach (string hash in duplicate_hashes)
             {
                 IEnumerable<string> duplicates = Files.Where(d => d.Value == hash).Select(s => s.Key);
 
-                Action(hash, duplicates.ToList());
+                duplicate_lists.Add(hash, duplicates.ToList());
             }
         }
 
-        static void Action(string hash, List<string> duplicates)
+        static List<string> Action(string hash, List<string> duplicates)
         {
             SortedList<DateTime, string> duplicate_ordered = new SortedList<DateTime, string>(duplicates.Count);
 
@@ -181,6 +206,8 @@ namespace DuplicateDestroyer
                 Console.WriteLine("The files will be kept.");
                 duplicate_ordered.Clear();
             }
+
+            return duplicate_ordered.Values.ToList();
         }
 
         static string CalculateHash(ref MD5CryptoServiceProvider mscp, string file)
@@ -208,35 +235,26 @@ namespace DuplicateDestroyer
             return md5b64;
         }
 
-        static void CheckFile(ref MD5CryptoServiceProvider mscp, string file)
+        static void RemoveFile(string file)
         {
-            string md5b64 = file;
+            Console.Write("File " + Path.GetFileName(file) + " was scheduled for deletion.");
 
-            if (MD5Hashes.Contains(md5b64))
+            try
             {
-                Console.Write("File " + Path.GetFileName(file) + " (hash: " + md5b64 + ") is a duplicate.");
-
-                try
+                if (ShouldRemove == true)
                 {
-                    if (ShouldRemove == true)
-                    {
-                        File.Delete(file);
-                        Console.WriteLine(" Deleted.");
-                    }
-                    else if (ShouldRemove == false)
-                    {
-                        Console.WriteLine();
-                    }
+                    File.Delete(file);
+                    Console.WriteLine(" Deleted.");
                 }
-                catch (System.IO.IOException ex)
+                else if (ShouldRemove == false)
                 {
-                    Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
-                    FileRemoveException = true;
+                    Console.WriteLine();
                 }
             }
-            else
+            catch (System.IO.IOException ex)
             {
-                MD5Hashes.Add(md5b64);
+                Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
+                FileRemoveException = true;
             }
         }
 
@@ -296,7 +314,7 @@ namespace DuplicateDestroyer
                     }
                     else if (UseFilenames == false)
                     {
-                        CheckFile(ref mcsp, f);
+                        //CheckFile(ref mcsp, f);
                     }
 
                     Files.Add(f, CalculateHash(ref mcsp, f));
