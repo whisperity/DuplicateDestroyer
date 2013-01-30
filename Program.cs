@@ -7,12 +7,13 @@ namespace DuplicateDestroyer
 {
     static class Program
     {
-        static Dictionary<string, string> Files;
         static bool AutoOldest;
         static bool AutoNewest;
         static bool ShouldRemove;
         static bool Verbose;
         static bool FileRemoveException;
+        static Dictionary<string, string> Files;
+        static int FileCount;
 
         static void Main(string[] args)
         {
@@ -91,73 +92,74 @@ namespace DuplicateDestroyer
             }
 
             Console.Write("Counting files... ");
-            int c = CountFiles(Directory.GetCurrentDirectory());
-            Console.WriteLine(c + " files found.");
-            Files = new Dictionary<string, string>(c);
+            FileCount = CountFiles(Directory.GetCurrentDirectory());
+            Console.WriteLine(Convert.ToString(FileCount) + " files found.");
+            Files = new Dictionary<string, string>(FileCount);
             Console.WriteLine();
 
-            DirSearch(System.IO.Directory.GetCurrentDirectory());
+            DirSearch(Directory.GetCurrentDirectory());
             Console.WriteLine();
 
-            SortedList<string,List<string>> DuplicateLists;
-            AnalyzeFilelist(out DuplicateLists);
+            SortedList<string,List<string>> DuplicateHashesList;
+            GetDuplicateHashes(out DuplicateHashesList);
             Console.WriteLine();
 
-            SortedList<string, List<string>> RemoveLists = new SortedList<string, List<string>>(DuplicateLists.Count);
-            foreach (List<string> duplicate_list in DuplicateLists.Values)
+            SortedList<string, List<string>> RemoveLists = new SortedList<string, List<string>>(DuplicateHashesList.Count);
+            foreach (List<string> duplicate_hash_files in DuplicateHashesList.Values)
             {
-                SortedList<DateTime, string> duplicate_ordered = new SortedList<DateTime, string>(duplicate_list.Count);
+                SortedList<DateTime, string> ordered = new SortedList<DateTime, string>(duplicate_hash_files.Count);
 
-                foreach (string file in duplicate_list)
+                foreach (string file in duplicate_hash_files)
                 {
                     FileInfo fi = new FileInfo(file);
-                    duplicate_ordered.Add(fi.LastAccessTime, file);
+                    ordered.Add(fi.LastAccessTime, file);
                 }
 
-                List<string> files_in_list = null;
+                List<string> files_to_remove = null;
 
                 if (AutoOldest == true && AutoNewest == false)
                 {
-                    files_in_list = duplicate_ordered.Values.ToList();
+                    files_to_remove = ordered.Values.ToList();
 
                     Console.Write("Automatically scheduled to keep OLDEST file: ");
-
+                    
                     if ( Verbose == true )
                     {
-                        Console.WriteLine(files_in_list[0]);
+                        Console.WriteLine(files_to_remove[0]);
                     }
                     else if ( Verbose == false )
                     {
-                        Console.WriteLine(Path.GetFileName(files_in_list[0]));
+                        Console.WriteLine(Path.GetFileName(files_to_remove[0]));
                     }
 
-                    files_in_list.RemoveAt(0);
+                    files_to_remove.RemoveAt(0);
                 }
                 else if (AutoOldest == false && AutoNewest == true)
                 {
-                    files_in_list = duplicate_ordered.Values.ToList();
+                    files_to_remove = ordered.Values.ToList();
 
                     Console.Write("Automatically scheduled to keep NEWEST file: ");
 
                     if (Verbose == true)
                     {
-                        Console.WriteLine(files_in_list[files_in_list.Count - 1]);
+                        Console.WriteLine(files_to_remove[files_to_remove.Count - 1]);
                     }
                     else if (Verbose == false)
                     {
-                        Console.WriteLine(Path.GetFileName(files_in_list[files_in_list.Count -1 ]));
+                        Console.WriteLine(Path.GetFileName(files_to_remove[files_to_remove.Count -1 ]));
                     }
 
+                    files_to_remove.RemoveAt(files_to_remove.Count - 1);
                 }
                 else if (AutoOldest == false && AutoNewest == false)
                 {
-                    files_in_list = SelectFileToKeep(
-                        DuplicateLists.Keys[DuplicateLists.IndexOfValue(duplicate_list)], duplicate_ordered);
+                    files_to_remove = SelectFileToKeep(
+                        DuplicateHashesList.Keys[DuplicateHashesList.IndexOfValue(duplicate_hash_files)], ordered);
                 }
 
-                if (files_in_list.Count != 0)
+                if (files_to_remove.Count != 0)
                 {
-                    RemoveLists.Add(DuplicateLists.Keys[DuplicateLists.IndexOfValue(duplicate_list)], files_in_list);
+                    RemoveLists.Add(DuplicateHashesList.Keys[DuplicateHashesList.IndexOfValue(duplicate_hash_files)], files_to_remove);
                 }
             }
             Console.WriteLine();
@@ -193,7 +195,7 @@ namespace DuplicateDestroyer
             }
         }
 
-        static void AnalyzeFilelist(out SortedList<string,List<string>> duplicateLists)
+        static void GetDuplicateHashes(out SortedList<string,List<string>> duplicateLists)
         {
             IEnumerable<string> duplicate_hashes =
                 Files.GroupBy(f => f.Value).Where(v => v.Count() > 1).Select(h => h.Key);
@@ -322,7 +324,7 @@ namespace DuplicateDestroyer
 
         static void RemoveFile(string file)
         {
-            Console.Write("File " + Path.GetFileName(file) + " was scheduled for deletion.");
+            Console.Write("File " + Path.GetFileName(file) + " ...");
 
             try
             {
