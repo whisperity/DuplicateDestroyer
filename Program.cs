@@ -9,7 +9,6 @@ namespace DuplicateDestroyer
     {
         static bool AutoOldest;
         static bool AutoNewest;
-        static bool ShouldRemove;
         static bool Verbose;
         static bool FileRemoveException;
         static Dictionary<string, string> Files;
@@ -29,7 +28,6 @@ namespace DuplicateDestroyer
             {
                 Console.WriteLine("HELP:");
                 Console.WriteLine("-h       Show this help text.");
-                Console.WriteLine("-ok      Safety disable. If omitted, will run in read-only mode.");
                 Console.WriteLine("-v       Verbose mode");
                 Console.WriteLine("-o       Automatically schedule the OLDEST file for keeping.");
                 Console.WriteLine("-n       Automatically schedule the NEWEST file for keeping.");
@@ -41,20 +39,6 @@ namespace DuplicateDestroyer
                 Environment.Exit(0);
             }
 
-            if (args.Contains<string>("-ok"))
-            {
-                ShouldRemove = true;
-                Console.WriteLine("Duplicate Destroyer is armed and dangerous. Files will be removed.");
-            }
-            else
-            {
-                ShouldRemove = false;
-                Console.WriteLine("Duplicate Destroyer is running in read-only mode.");
-                Console.WriteLine("The files will only be checked, nothing will be removed.");
-                Console.WriteLine("To actually remove the files, run the program with the argument: -ok");
-            }
-            Console.WriteLine();
-
             if (args.Contains<string>("-v"))
             {
                 Verbose = true;
@@ -63,7 +47,7 @@ namespace DuplicateDestroyer
             {
                 Verbose = false;
             }
-            
+
             if (args.Contains<string>("-o"))
             {
                 AutoOldest = true;
@@ -100,7 +84,7 @@ namespace DuplicateDestroyer
             DirSearch(Directory.GetCurrentDirectory());
             Console.WriteLine();
 
-            SortedList<string,List<string>> DuplicateHashesList;
+            SortedList<string, List<string>> DuplicateHashesList;
             GetDuplicateHashes(out DuplicateHashesList);
             Console.WriteLine();
 
@@ -122,12 +106,12 @@ namespace DuplicateDestroyer
                     files_to_remove = ordered.Values.ToList();
 
                     Console.Write("Automatically scheduled to keep OLDEST file: ");
-                    
-                    if ( Verbose == true )
+
+                    if (Verbose == true)
                     {
                         Console.WriteLine(files_to_remove[0]);
                     }
-                    else if ( Verbose == false )
+                    else if (Verbose == false)
                     {
                         Console.WriteLine(Path.GetFileName(files_to_remove[0]));
                     }
@@ -146,7 +130,7 @@ namespace DuplicateDestroyer
                     }
                     else if (Verbose == false)
                     {
-                        Console.WriteLine(Path.GetFileName(files_to_remove[files_to_remove.Count -1 ]));
+                        Console.WriteLine(Path.GetFileName(files_to_remove[files_to_remove.Count - 1]));
                     }
 
                     files_to_remove.RemoveAt(files_to_remove.Count - 1);
@@ -195,13 +179,13 @@ namespace DuplicateDestroyer
             }
         }
 
-        static void GetDuplicateHashes(out SortedList<string,List<string>> duplicateLists)
+        static void GetDuplicateHashes(out SortedList<string, List<string>> duplicateLists)
         {
             IEnumerable<string> duplicate_hashes =
                 Files.GroupBy(f => f.Value).Where(v => v.Count() > 1).Select(h => h.Key);
-            
+
             duplicateLists = new SortedList<string, List<string>>();
-            
+
             foreach (string hash in duplicate_hashes)
             {
                 IEnumerable<string> duplicates = Files.Where(d => d.Value == hash).Select(s => s.Key);
@@ -209,7 +193,7 @@ namespace DuplicateDestroyer
             }
         }
 
-        static List<string> SelectFileToKeep(string hash, SortedList<DateTime,string> fileList)
+        static List<string> SelectFileToKeep(string hash, SortedList<DateTime, string> fileList)
         {
             bool selection_success = false;
             uint choice = 0;
@@ -328,23 +312,16 @@ namespace DuplicateDestroyer
 
             try
             {
-                if (ShouldRemove == true)
-                {
-                    File.Delete(file);
-                    Console.WriteLine(" Deleted.");
-                }
-                else if (ShouldRemove == false)
-                {
-                    Console.WriteLine();
-                }
+                File.Delete(file);
+                Console.WriteLine(" Deleted.");
             }
-            catch (System.IO.IOException ex)
+            catch (Exception ex)
             {
                 Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
                 FileRemoveException = true;
             }
         }
-        
+
         static void DirSearch(string directory)
         {
             System.Security.Cryptography.MD5CryptoServiceProvider mcsp = new System.Security.Cryptography.MD5CryptoServiceProvider();
