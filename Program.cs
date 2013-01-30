@@ -12,6 +12,7 @@ namespace DuplicateDestroyer
         static bool Verbose;
         static bool FileRemoveException;
         static Dictionary<string, string> Files;
+        static Dictionary<string, long> Sizes;
         static int FileCount;
 
         static void Main(string[] args)
@@ -79,13 +80,55 @@ namespace DuplicateDestroyer
             FileCount = CountFiles(Directory.GetCurrentDirectory());
             Console.WriteLine(Convert.ToString(FileCount) + " files found.");
             Files = new Dictionary<string, string>(FileCount);
+            Sizes = new Dictionary<string, long>(FileCount);
             Console.WriteLine();
 
-            DirSearch(Directory.GetCurrentDirectory());
+            Console.WriteLine("Measuring file sizes...");
+            SearchSizes(Directory.GetCurrentDirectory());
             Console.WriteLine();
 
+            Console.Write("Analyzing sizes... ");
+            List<List<string>> PossibleDuplicates;
+            AnalyzeSizes(out PossibleDuplicates);
+
+            Console.Write(Convert.ToString(PossibleDuplicates.Count) + " unique file size");
+            int duplicate_size_amount = 0;
+            foreach (List<string> duplicates_of_a_size in PossibleDuplicates)
+            {
+                foreach (string file in duplicates_of_a_size)
+                {
+                    duplicate_size_amount++;
+                }
+            }
+            Console.WriteLine(" found for " + Convert.ToString(duplicate_size_amount) + " files.");
+            Console.WriteLine();
+
+            Console.WriteLine("Reading file contents...");
+            System.Security.Cryptography.MD5CryptoServiceProvider mcsp = new System.Security.Cryptography.MD5CryptoServiceProvider();
+
+            foreach (List<string> duplicated_size in PossibleDuplicates)
+            {
+                foreach (string file in duplicated_size)
+                {
+                    Files.Add(file, CalculateHash(ref mcsp, file));
+                }
+            }
+            Console.WriteLine();
+
+            Console.WriteLine("Searching for true duplication... ");
             SortedList<string, List<string>> DuplicateHashesList;
-            GetDuplicateHashes(out DuplicateHashesList);
+            AnalyzeFilelist(out DuplicateHashesList);
+
+            Console.Write(Convert.ToString(DuplicateHashesList.Count) + " unique content");
+            int duplicate_file_amount = 0;
+            foreach (List<string> duplicates_of_a_hash in DuplicateHashesList.Values)
+            {
+                foreach (string file in duplicates_of_a_hash)
+                {
+                    duplicate_file_amount++;
+                }
+            }
+            Console.WriteLine(" duplicated across " + Convert.ToString(duplicate_file_amount) + " files.");
             Console.WriteLine();
 
             SortedList<string, List<string>> RemoveLists = new SortedList<string, List<string>>(DuplicateHashesList.Count);
@@ -179,7 +222,21 @@ namespace DuplicateDestroyer
             }
         }
 
-        static void GetDuplicateHashes(out SortedList<string, List<string>> duplicateLists)
+        static void AnalyzeSizes(out List<List<string>> possibleDuplicates)
+        {
+            IEnumerable<long> duplicate_sizes =
+                Sizes.GroupBy(f => f.Value).Where(v => v.Count() > 1).Select(s => s.Key);
+
+            possibleDuplicates = new List<List<string>>();
+
+            foreach (long size in duplicate_sizes)
+            {
+                IEnumerable<string> duplicates = Sizes.Where(d => d.Value == size).Select(s => s.Key);
+                possibleDuplicates.Add(duplicates.ToList());
+            }
+        }
+
+        static void AnalyzeFilelist(out SortedList<string, List<string>> duplicateLists)
         {
             IEnumerable<string> duplicate_hashes =
                 Files.GroupBy(f => f.Value).Where(v => v.Count() > 1).Select(h => h.Key);
@@ -300,7 +357,7 @@ namespace DuplicateDestroyer
 
             if (Verbose == true)
             {
-                Console.WriteLine(" Read. Hash: " + md5b64 + ".");
+                Console.WriteLine(" Hash: " + md5b64 + ".");
             }
 
             return md5b64;
@@ -322,15 +379,25 @@ namespace DuplicateDestroyer
             }
         }
 
-        static void DirSearch(string directory)
+        static void SearchSizes(string directory)
         {
-            System.Security.Cryptography.MD5CryptoServiceProvider mcsp = new System.Security.Cryptography.MD5CryptoServiceProvider();
-
             try
             {
                 foreach (string f in Directory.GetFiles(directory, "*", SearchOption.AllDirectories))
                 {
-                    Files.Add(f, CalculateHash(ref mcsp, f));
+                    if (Verbose == true)
+                    {
+                        Console.Write("Measuring " + Path.GetFileName(f) + "...");
+                    }
+
+                    FileInfo fi = new FileInfo(f);
+
+                    Sizes.Add(f, fi.Length);
+
+                    if (Verbose == true)
+                    {
+                        Console.WriteLine(" Size: " + Convert.ToString(fi.Length) + " bytes.");
+                    }
                 }
             }
             catch (Exception ex)
