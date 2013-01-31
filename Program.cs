@@ -7,9 +7,10 @@ namespace DuplicateDestroyer
 {
     static class Program
     {
+        static bool Verbose;
+        static bool DryRun;
         static bool AutoOldest;
         static bool AutoNewest;
-        static bool Verbose;
         static bool FileRemoveException;
         static Dictionary<string, string> Files;
         static Dictionary<string, long> Sizes;
@@ -25,11 +26,12 @@ namespace DuplicateDestroyer
             Console.WriteLine("Copyright, Copydrunk, Copypone (c) 2012, Cloud Chiller");
             Console.WriteLine();
 
-            if (args.Contains<string>("-h"))
+            if (args.Contains("-h"))
             {
                 Console.WriteLine("HELP:");
                 Console.WriteLine("-h       Show this help text.");
                 Console.WriteLine("-v       Verbose mode");
+                Console.WriteLine("-d       Dry run. Only check for duplicates, but don't actually remove them.");
                 Console.WriteLine("-o       Automatically schedule the OLDEST file for keeping.");
                 Console.WriteLine("-n       Automatically schedule the NEWEST file for keeping.");
                 Console.WriteLine();
@@ -40,32 +42,10 @@ namespace DuplicateDestroyer
                 Environment.Exit(0);
             }
 
-            if (args.Contains<string>("-v"))
-            {
-                Verbose = true;
-            }
-            else
-            {
-                Verbose = false;
-            }
-
-            if (args.Contains<string>("-o"))
-            {
-                AutoOldest = true;
-            }
-            else
-            {
-                AutoOldest = false;
-            }
-
-            if (args.Contains<string>("-n"))
-            {
-                AutoNewest = true;
-            }
-            else
-            {
-                AutoNewest = false;
-            }
+            Verbose = args.Contains("-v");
+            DryRun = args.Contains("-d");
+            AutoOldest = args.Contains("-o");
+            AutoNewest = args.Contains("-n");
 
             if (AutoOldest == true && AutoNewest == true)
             {
@@ -191,21 +171,24 @@ namespace DuplicateDestroyer
             }
             Console.WriteLine();
 
-            foreach (List<string> removes in RemoveLists.Values)
+            if (DryRun == false)
             {
-                if (Verbose == true)
+                foreach (List<string> removes in RemoveLists.Values)
                 {
-                    Console.WriteLine("Removing duplicates of hash: " + RemoveLists.Keys[RemoveLists.IndexOfValue(removes)]);
-                }
+                    if (Verbose == true)
+                    {
+                        Console.WriteLine("Removing duplicates of hash: " + RemoveLists.Keys[RemoveLists.IndexOfValue(removes)]);
+                    }
 
-                foreach (string file in removes)
-                {
-                    RemoveFile(file);
-                }
+                    foreach (string file in removes)
+                    {
+                        RemoveFile(file);
+                    }
 
-                if (Verbose == true)
-                {
-                    Console.WriteLine();
+                    if (Verbose == true)
+                    {
+                        Console.WriteLine();
+                    }
                 }
             }
 
@@ -293,46 +276,58 @@ namespace DuplicateDestroyer
 
                     Console.WriteLine();
                 }
-                Console.WriteLine((fileList.Count + 1) + ". Take no action");
 
-                try
+                if (DryRun == false)
                 {
-                    Console.Write("Select the file you want TO KEEP. (The rest will be deleted.): ");
-                    choice = Convert.ToUInt32(Console.ReadLine());
+                    Console.WriteLine((fileList.Count + 1) + ". Take no action");
 
-                    selection_success = true;
-
-                    if (choice < 1 || choice > fileList.Count + 1)
+                    try
                     {
-                        throw new Exception("You entered an invalid option. Please choose an option printed on the menu.");
+                        Console.Write("Select the file you want TO KEEP. (The rest will be deleted.): ");
+                        choice = Convert.ToUInt32(Console.ReadLine());
+
+                        selection_success = true;
+
+                        if (choice < 1 || choice > fileList.Count + 1)
+                        {
+                            throw new Exception("You entered an invalid option. Please choose an option printed on the menu.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine("Unable to parse choice. An exception happened: " + ex.Message);
+                        selection_success = false;
                     }
                 }
-                catch (Exception ex)
+                else if (DryRun == true)
                 {
-                    Console.WriteLine("Unable to parse choice. An exception happened: " + ex.Message);
-                    selection_success = false;
+                    selection_success = true;
+                    choice = 0;
                 }
             }
 
-            if (choice != fileList.Count + 1 && choice != 0)
+            if (DryRun == false)
             {
-                Console.Write("Scheduled to keep file: ");
-
-                if (Verbose == true)
+                if (choice != fileList.Count + 1 && choice != 0)
                 {
-                    Console.WriteLine(fileList.Values[(int)choice - 1]);
-                }
-                else if (Verbose == false)
-                {
-                    Console.WriteLine(Path.GetFileName(fileList.Values[(int)choice - 1]));
-                }
+                    Console.Write("Scheduled to keep file: ");
 
-                fileList.RemoveAt((int)choice - 1);
-            }
-            else if (choice == fileList.Count + 1 || choice == 0)
-            {
-                Console.WriteLine("All files will be kept.");
-                fileList.Clear();
+                    if (Verbose == true)
+                    {
+                        Console.WriteLine(fileList.Values[(int)choice - 1]);
+                    }
+                    else if (Verbose == false)
+                    {
+                        Console.WriteLine(Path.GetFileName(fileList.Values[(int)choice - 1]));
+                    }
+
+                    fileList.RemoveAt((int)choice - 1);
+                }
+                else if (choice == fileList.Count + 1 || choice == 0)
+                {
+                    Console.WriteLine("All files will be kept.");
+                    fileList.Clear();
+                }
             }
 
             return fileList.Values.ToList();

@@ -25,6 +25,7 @@ Parameters
     
     -h    Show this help text.
     -v    Verbose mode
+    -d    Dry run. Only check for duplicates, but don't actually remove them."
     -o    Automatically schedule the OLDEST file for keeping.
     -n    Automatically schedule the NEWEST file for keeping.
 
