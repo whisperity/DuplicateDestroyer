@@ -7,6 +7,16 @@ namespace DuplicateDestroyer
 {
     static class Program
     {
+        class FileSizeComparerDescending : IComparer<long>
+        {
+            public int Compare(long x, long y)
+            {
+                if (x < y) return 1;
+                else if (x > y) return -1;
+                else return 0;
+            }
+        }
+
         static bool Verbose;
         static bool DryRun;
         static bool AutoOldest;
@@ -15,11 +25,10 @@ namespace DuplicateDestroyer
         static Dictionary<string, string> Files;
         static Dictionary<string, long> Sizes;
         static int FileCount;
+        static string CurrentDirectory;
 
         static void Main(string[] args)
         {
-            FileRemoveException = false;
-
             Console.WriteLine("Duplicate Destroyer");
             Console.WriteLine("'Boring Blackjack'");
             Console.WriteLine("Licenced under Tiny Driplet Licence (can be found at cloudchiller.net)");
@@ -56,24 +65,27 @@ namespace DuplicateDestroyer
                 Environment.Exit(3);
             }
 
+            FileRemoveException = false;
+            CurrentDirectory = Directory.GetCurrentDirectory();
+
             Console.Write("Counting files... ");
-            FileCount = CountFiles(Directory.GetCurrentDirectory());
+            FileCount = CountFiles(CurrentDirectory);
             Console.WriteLine(Convert.ToString(FileCount) + " files found.");
             Files = new Dictionary<string, string>(FileCount);
             Sizes = new Dictionary<string, long>(FileCount);
             Console.WriteLine();
 
             Console.WriteLine("Measuring file sizes...");
-            SearchSizes(Directory.GetCurrentDirectory());
+            SearchSizes(CurrentDirectory);
             Console.WriteLine();
 
             Console.Write("Analyzing sizes... ");
-            List<List<string>> PossibleDuplicates;
+            SortedList<long, List<string>> PossibleDuplicates;
             AnalyzeSizes(out PossibleDuplicates);
 
             Console.Write(Convert.ToString(PossibleDuplicates.Count) + " unique file size");
             int duplicate_size_amount = 0;
-            foreach (List<string> duplicates_of_a_size in PossibleDuplicates)
+            foreach (List<string> duplicates_of_a_size in PossibleDuplicates.Values)
             {
                 foreach (string file in duplicates_of_a_size)
                 {
@@ -86,7 +98,7 @@ namespace DuplicateDestroyer
             Console.WriteLine("Reading file contents...");
             System.Security.Cryptography.MD5CryptoServiceProvider mcsp = new System.Security.Cryptography.MD5CryptoServiceProvider();
 
-            foreach (List<string> duplicated_size in PossibleDuplicates)
+            foreach (List<string> duplicated_size in PossibleDuplicates.Values)
             {
                 foreach (string file in duplicated_size)
                 {
@@ -205,17 +217,17 @@ namespace DuplicateDestroyer
             }
         }
 
-        static void AnalyzeSizes(out List<List<string>> possibleDuplicates)
+        static void AnalyzeSizes(out SortedList<long, List<string>> possibleDuplicates)
         {
             IEnumerable<long> duplicate_sizes =
                 Sizes.GroupBy(f => f.Value).Where(v => v.Count() > 1).Select(s => s.Key);
 
-            possibleDuplicates = new List<List<string>>();
+            possibleDuplicates = new SortedList<long, List<string>>(new FileSizeComparerDescending());
 
             foreach (long size in duplicate_sizes)
             {
                 IEnumerable<string> duplicates = Sizes.Where(d => d.Value == size).Select(s => s.Key);
-                possibleDuplicates.Add(duplicates.ToList());
+                possibleDuplicates.Add(size, duplicates.ToList());
             }
         }
 
