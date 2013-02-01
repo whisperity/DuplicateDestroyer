@@ -25,7 +25,7 @@ namespace DuplicateDestroyer
         static Dictionary<string, string> Files;
         static Dictionary<string, long> Sizes;
         static int FileCount;
-        static string CurrentDirectory;
+        static string TargetDirectory;
 
         static void Main(string[] args)
         {
@@ -66,17 +66,17 @@ namespace DuplicateDestroyer
             }
 
             FileRemoveException = false;
-            CurrentDirectory = Directory.GetCurrentDirectory();
+            TargetDirectory = Directory.GetCurrentDirectory();
 
             Console.Write("Counting files... ");
-            FileCount = CountFiles(CurrentDirectory);
+            FileCount = CountFiles(TargetDirectory);
             Console.WriteLine(Convert.ToString(FileCount) + " files found.");
             Files = new Dictionary<string, string>(FileCount);
             Sizes = new Dictionary<string, long>(FileCount);
             Console.WriteLine();
 
             Console.WriteLine("Measuring file sizes...");
-            SearchSizes(CurrentDirectory);
+            SearchSizes(TargetDirectory);
             Console.WriteLine();
 
             Console.Write("Analyzing sizes... ");
@@ -131,7 +131,17 @@ namespace DuplicateDestroyer
                 foreach (string file in duplicate_hash_files)
                 {
                     FileInfo fi = new FileInfo(file);
-                    ordered.Add(fi.LastAccessTime, file);
+                    DateTime lastAccessTime = fi.LastAccessTime;
+
+                    // Well this is a hack.
+                    // Whatever. It will just stop throwing those
+                    // System.ArgumentException: An entry with the same key already exists.
+                    while (ordered.ContainsKey(lastAccessTime))
+                    {
+                        lastAccessTime = lastAccessTime.AddMilliseconds(1);
+                    }
+
+                    ordered.Add(lastAccessTime, file);
                 }
 
                 List<string> files_to_remove = null;
