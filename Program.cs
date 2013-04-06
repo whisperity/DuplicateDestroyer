@@ -30,7 +30,7 @@ namespace DuplicateDestroyer
         static void Main(string[] args)
         {
             Console.WriteLine("Duplicate Destroyer");
-            Console.WriteLine("'Boring Blackjack'");
+            Console.WriteLine("'Catastrophic Canon'");
             Console.WriteLine("Licenced under Tiny Driplet Licence (can be found at cloudchiller.net)");
             Console.WriteLine("Copyright, Copydrunk, Copypone (c) 2012, Cloud Chiller");
             Console.WriteLine();
@@ -45,7 +45,7 @@ namespace DuplicateDestroyer
                 Console.WriteLine("-n       Automatically schedule the NEWEST file for keeping.");
                 Console.WriteLine();
                 Console.WriteLine("Omitting both -o and -n results in the user being queried about which file to keep.");
-                Console.WriteLine("Using both -o and -n with each other is an error.");
+                Console.WriteLine("Using both -o and -n throws an error.");
                 Console.WriteLine();
 
                 Environment.Exit(0);
@@ -59,7 +59,7 @@ namespace DuplicateDestroyer
             if (AutoOldest == true && AutoNewest == true)
             {
                 Console.WriteLine("ERROR: Conflicting arguments.");
-                Console.WriteLine("It's an error to use -o and -n together.");
+                Console.WriteLine("Please use either -o or -n, not both.");
                 Console.WriteLine();
 
                 Environment.Exit(3);
