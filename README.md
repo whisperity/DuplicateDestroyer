@@ -6,8 +6,9 @@ DuplicateDestroyer removes duplicate files from a directory tree.
 How to use?
 -----------
 * Put the executable into the top folder of the tree you want to check.
-* _Optional step_ To only check for duplicates (but to **avoid** accidentally removing them), run the program normally.
-* Run it from the command-line as `DuplicateDestroyer.exe -ok`. This run will actually delete the files.
+* Start the application. (Either by double click or from the command line: `DuplicateDestroyer.exe`)
+* DuplicateDestroyer will ask you to specify which file **to keep** in case there are duplicates. The rest of the files will be deleted.
+* Alternatively, you might specify `-o` or `-n` to auto-schedule the oldest or newest files.
 
 Implications/Limitations
 ------------------------
@@ -22,15 +23,18 @@ Parameters
 ----------
     DuplicateDestroyer.exe
     
-    -h    Show the help screen
-    -ok   Safety disable. If omitted, will run in read-only mode.
-    -fn   Work by filenames (w/o extentions) instead of hashes.
+    -h    Show this help text.
+    -v    Verbose mode
+    -d    Dry run. Only check for duplicates, but don't actually remove them."
+    -o    Automatically schedule the OLDEST file for keeping.
+    -n    Automatically schedule the NEWEST file for keeping.
 
 Exit codes
 ----------
     0   Program terminated normally
     1   Exception happened while counting files or iterating the tree
     2   One or more files failed to be deleted
+    3   Configuration error (i.e.: using both -o and -n switches)
 
 License
 -------
