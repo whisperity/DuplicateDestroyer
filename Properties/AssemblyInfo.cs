@@ -10,7 +10,7 @@ using System.Runtime.InteropServices;
 [assembly: AssemblyConfiguration("")]
 [assembly: AssemblyCompany("Cloud Chiller")]
 [assembly: AssemblyProduct("Duplicate Destroyer")]
-[assembly: AssemblyCopyright("Copyright, Copydrunk, Copypone © Cloud Chiller 2012")]
+[assembly: AssemblyCopyright("Copyright, Copydrunk, Copypone © Cloud Chiller 2012-2014")]
 [assembly: AssemblyTrademark("")]
 [assembly: AssemblyCulture("")]
 

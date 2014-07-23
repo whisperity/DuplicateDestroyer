@@ -32,7 +32,7 @@ namespace DuplicateDestroyer
             Console.WriteLine("Duplicate Destroyer");
             Console.WriteLine("'Catastrophic Canon'");
             Console.WriteLine("Licenced under Tiny Driplet Licence (can be found at cloudchiller.net)");
-            Console.WriteLine("Copyright, Copydrunk, Copypone (c) 2012, Cloud Chiller");
+            Console.WriteLine("Copyright, Copydrunk, Copypone (c) 2012-2014, Cloud Chiller");
             Console.WriteLine();
 
             if (args.Contains("-h"))
@@ -364,11 +364,10 @@ namespace DuplicateDestroyer
                 Console.Write("Reading file " + Path.GetFileName(file) + "...");
             }
 
+            byte[] md5bytes;
             using (FileStream stream = File.OpenRead(file))
             {
-                byte[] filebytes = new byte[stream.Length + 1];
-                stream.Read(filebytes, 0, Convert.ToInt32(stream.Length));
-                byte[] md5bytes = mcsp.ComputeHash(filebytes);
+                md5bytes = mcsp.ComputeHash(stream);
                 md5b64 = Convert.ToBase64String(md5bytes);
             }
 
