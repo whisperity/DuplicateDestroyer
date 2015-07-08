@@ -42,7 +42,7 @@ namespace DuplicateDestroyer
             }
         }
 
-        internal IEnumerable<SizeEntry> GetRecords()
+        public IEnumerable<SizeEntry> GetRecords()
         {
             this.Stream.Seek(0, SeekOrigin.Begin);
 
@@ -98,6 +98,14 @@ namespace DuplicateDestroyer
                 position = low * SizeEntry.RecordSize;
 
             return found;
+        }
+
+        public SizeEntry GetRecordByIndex(long index)
+        {
+            if (index > RecordCount || index < 0)
+                throw new ArgumentOutOfRangeException("Can't match index with a record: index is negative or too big.");
+
+            return GetRecordAt(index * SizeEntry.RecordSize);
         }
 
         private SizeEntry GetRecordAt(long position)

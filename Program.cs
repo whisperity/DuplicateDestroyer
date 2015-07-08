@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text;
 
 namespace DuplicateDestroyer
 {
@@ -24,9 +25,11 @@ namespace DuplicateDestroyer
         static bool FileRemoveException;
         static Dictionary<string, string> Files;
         static Dictionary<string, long> Sizes;
-        static int FileCount;
+        //static int FileCount;
         static string TargetDirectory;
 
+        static SizeFile SizesFile;
+        static ulong SizeCount, FileCount;
 
         static void Main(string[] args)
         {
@@ -56,6 +59,8 @@ namespace DuplicateDestroyer
             DryRun = args.Contains("-d");
             AutoOldest = args.Contains("-o");
             AutoNewest = args.Contains("-n");
+            SizeCount = 0;
+            FileCount = 0;
 
             if (AutoOldest == true && AutoNewest == true)
             {
@@ -70,13 +75,14 @@ namespace DuplicateDestroyer
             SizesFileStream.SetLength(0);
             SizesFile = new SizeFile(SizesFileStream);
 
+
             FileRemoveException = false;
             TargetDirectory = "..\\..";
             Directory.SetCurrentDirectory(TargetDirectory);
             TargetDirectory = Directory.GetCurrentDirectory();
 
-            Console.WriteLine("Counting files and registering sizes...");
-            Sizes = new Dictionary<string, long>(FileCount);
+            Console.Write("Counting files and measuring sizes... " + (Verbose ? "\n" : String.Empty));
+            Sizes = new Dictionary<string, long>();
             List<string> Subfolders = new List<string>();
             Subfolders.Add(TargetDirectory);
             while (Subfolders.Count != 0)
@@ -86,23 +92,36 @@ namespace DuplicateDestroyer
 
                 // The on-the-fly detected subfolders are added to the list while reading.
             }
-            //ReadFileSizes(TargetDirectory, ref Subfolders);
             //StreamDump(SizesFile);
-            foreach (SizeEntry se in SizesFile.GetRecords())
-                Console.WriteLine("\tSize: " + se.Size + "\tCount: " + se.Count);
+            //foreach (SizeEntry se in SizesFile.GetRecords())
+            //    Console.WriteLine("\tSize: " + se.Size + "\tCount: " + se.Count);
 
-            Console.WriteLine(SizesFile.GetRecords().Sum(se => (long)se.Count).ToString() + " files found.");
+            //Console.WriteLine(SizesFile.GetRecords().Sum(se => (long)se.Count).ToString() + " files found.");
+            Console.WriteLine((!Verbose ? "\n" : String.Empty) + FileCount + " files found.");
 
-
+            Console.Write("Analyzing sizes... ");
+            AnalyzeSizes();
+            //Console.Write(SizesFile.GetRecords().Count().ToString() + " unique file size");
+            Console.Write(SizeCount + " unique file size");
+            //StreamDump(SizesFile);
+            //foreach (SizeEntry se in SizesFile.GetRecords())
+            //    Console.WriteLine("\tSize: " + se.Size + "\tCount: " + se.Count);
+            //Console.WriteLine(" found for " + SizesFile.GetRecords().Sum(se => (long)se.Count).ToString() + " files.");
+            Console.WriteLine(" found for " + FileCount + " files.");
 
             SizesFileStream.Dispose();
             Console.ReadLine();
             Environment.Exit(0);
 
+
+
+
+
+
             Console.Write("Counting files... ");
-            FileCount = CountFiles(TargetDirectory);
+            FileCount = (ulong)CountFiles(TargetDirectory);
             Console.WriteLine(Convert.ToString(FileCount) + " files found.");
-            Files = new Dictionary<string, string>(FileCount);
+            Files = new Dictionary<string, string>((int)FileCount);
             Console.WriteLine();
 
             Console.WriteLine("Measuring file sizes...");
@@ -111,7 +130,7 @@ namespace DuplicateDestroyer
 
             Console.Write("Analyzing sizes... ");
             SortedList<long, List<string>> PossibleDuplicates;
-            AnalyzeSizes(out PossibleDuplicates);
+            AnalyzeSizes_Old(out PossibleDuplicates);
 
             Console.Write(Convert.ToString(PossibleDuplicates.Count) + " unique file size");
             int duplicate_size_amount = 0;
@@ -257,7 +276,38 @@ namespace DuplicateDestroyer
             }
         }
 
-        static void AnalyzeSizes(out SortedList<long, List<string>> possibleDuplicates)
+        static void AnalyzeSizes()
+        {
+            // After the file sizes are read, we eliminate every size which refers to one file
+            // As there could not be duplicates that way.
+
+            for (long i = SizesFile.RecordCount - 1; i >= 0; --i)
+            {
+                SizeEntry rec = new SizeEntry();
+                try
+                {
+                    rec = SizesFile.GetRecordByIndex(i);
+                }
+                catch (Exception ex)
+                {
+                    //Console.ForegroundColor = ConsoleColor.Yellow;
+                    //Console.WriteLine("Couldn't get, because");
+                    //Console.ResetColor();
+                    //Console.WriteLine(ex.Message);
+
+                    continue;
+                }
+
+                if (rec.Count == 1 || rec.Count == 0)
+                {
+                    SizesFile.DeleteRecord(rec.Size);
+                    --SizeCount;
+                    --FileCount;
+                }
+            }
+        }
+
+        static void AnalyzeSizes_Old(out SortedList<long, List<string>> possibleDuplicates)
         {
             IEnumerable<long> duplicate_sizes =
                 Sizes.GroupBy(f => f.Value).Where(v => v.Count() > 1).Select(s => s.Key);
@@ -425,6 +475,10 @@ namespace DuplicateDestroyer
             }
         }
 
+        // Indicate the number of files counted with visual glyphs.
+        // Each marks a ten-fold increasement. So # is 10s, & is 100s, @ is 1000s, etc.
+        //static char[] CountVisualGlyphs = new char[] { '#', '&', '@', '$', '*' };
+
         static void ReadFileSizes(string directory, ref List<string> subfolderList)
         {
             if (Verbose)
@@ -436,8 +490,6 @@ namespace DuplicateDestroyer
                 foreach (string path in Directory.EnumerateFileSystemEntries(directory, "*", SearchOption.TopDirectoryOnly))
                 {
                     string fullPath = Path.GetFullPath(path).Replace(Directory.GetCurrentDirectory(), String.Empty).TrimStart('\\');
-                    //string fullPath = Path.GetFullPath(path);
-                    //string fullPath = directory + Path.DirectorySeparatorChar + path;
 
                     // Skip some files which should not be access by the program
                     if (Path.GetFullPath(path) == SizesFile.Stream.Name)
@@ -467,14 +519,36 @@ namespace DuplicateDestroyer
                             long position = 0;
                             bool known = SizesFile.GetRecord((ulong)fi.Length, out entry, out position);
                             entry.Size = (ulong)fi.Length;
-                            if (!known) // Need to reset the entry's count because GetRecord gives
-                                        // undefined value if the entry is not found.
+                            if (!known)
+                            {
+                                // Need to reset the entry's count because GetRecord gives
+                                // undefined value if the entry is not found.
                                 entry.Count = 0;
+                                ++SizeCount;
+                            }
                             entry.Count++;
                             SizesFile.WriteRecord(entry);
 
                             if (Verbose)
                                 Console.WriteLine(" Size: " + fi.Length.ToString() + " bytes.");
+
+                            ++FileCount;
+
+                            // If verbose mode is turned off, give some visual hint for the user.
+                            /*if (!Verbose && CountVisualGlyphs.Length > 0)
+                            {
+                                if (FileCount % 10 == 0)
+                                    Console.Write(CountVisualGlyphs[0]);
+
+                                for (byte i = 2; i < CountVisualGlyphs.Length + 1; ++i)
+                                    if (FileCount % Math.Pow(10, i) == 0)
+                                    {
+                                        Console.Write(new String('\b', 10));
+                                        Console.Write(new String(' ', 10));
+                                        Console.Write(new String('\b', 10));
+                                        Console.Write(CountVisualGlyphs[i - 1]);
+                                    }
+                            }*/
                         }
                     }
                     catch (Exception ex)
