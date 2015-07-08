@@ -27,6 +27,7 @@ namespace DuplicateDestroyer
         static int FileCount;
         static string TargetDirectory;
 
+
         static void Main(string[] args)
         {
             Console.WriteLine("Duplicate Destroyer");
@@ -65,14 +66,43 @@ namespace DuplicateDestroyer
                 Environment.Exit(3);
             }
 
+            FileStream SizesFileStream = new FileStream(".dd_sizes", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+            SizesFileStream.SetLength(0);
+            SizesFile = new SizeFile(SizesFileStream);
+
             FileRemoveException = false;
+            TargetDirectory = "..\\..";
+            Directory.SetCurrentDirectory(TargetDirectory);
             TargetDirectory = Directory.GetCurrentDirectory();
+
+            Console.WriteLine("Counting files and registering sizes...");
+            Sizes = new Dictionary<string, long>(FileCount);
+            List<string> Subfolders = new List<string>();
+            Subfolders.Add(TargetDirectory);
+            while (Subfolders.Count != 0)
+            {
+                // Read the files in the subfolders.
+                ReadFileSizes(Subfolders[0], ref Subfolders);
+
+                // The on-the-fly detected subfolders are added to the list while reading.
+            }
+            //ReadFileSizes(TargetDirectory, ref Subfolders);
+            //StreamDump(SizesFile);
+            foreach (SizeEntry se in SizesFile.GetRecords())
+                Console.WriteLine("\tSize: " + se.Size + "\tCount: " + se.Count);
+
+            Console.WriteLine(SizesFile.GetRecords().Sum(se => (long)se.Count).ToString() + " files found.");
+
+
+
+            SizesFileStream.Dispose();
+            Console.ReadLine();
+            Environment.Exit(0);
 
             Console.Write("Counting files... ");
             FileCount = CountFiles(TargetDirectory);
             Console.WriteLine(Convert.ToString(FileCount) + " files found.");
             Files = new Dictionary<string, string>(FileCount);
-            Sizes = new Dictionary<string, long>(FileCount);
             Console.WriteLine();
 
             Console.WriteLine("Measuring file sizes...");
@@ -385,14 +415,86 @@ namespace DuplicateDestroyer
 
             try
             {
-                File.Delete(file);
-                Console.WriteLine(" Deleted.");
+                //File.Delete(file);
+                //Console.WriteLine(" Deleted.");
             }
             catch (Exception ex)
             {
                 Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
                 FileRemoveException = true;
             }
+        }
+
+        static void ReadFileSizes(string directory, ref List<string> subfolderList)
+        {
+            if (Verbose)
+                Console.WriteLine("Reading contents of " + directory);
+            
+            try
+            {
+                int insertIndex = 0;
+                foreach (string path in Directory.EnumerateFileSystemEntries(directory, "*", SearchOption.TopDirectoryOnly))
+                {
+                    string fullPath = Path.GetFullPath(path).Replace(Directory.GetCurrentDirectory(), String.Empty).TrimStart('\\');
+                    //string fullPath = Path.GetFullPath(path);
+                    //string fullPath = directory + Path.DirectorySeparatorChar + path;
+
+                    // Skip some files which should not be access by the program
+                    if (Path.GetFullPath(path) == SizesFile.Stream.Name)
+                        continue;
+
+                    try
+                    {
+                        if (Directory.Exists(fullPath))
+                        {
+                            // If it is a directory, add it to the list of subfolders to check later on
+                            if (Verbose)
+                                Console.WriteLine(fullPath + " is a subfolder.");
+
+                            // Add the found subfolders to the beginning of the list, but keep their natural order
+                            subfolderList.Insert(++insertIndex, fullPath);
+                        }
+                        else if (File.Exists(fullPath))
+                        {
+                            if (Verbose)
+                                Console.Write("Measuring " + fullPath + "...");
+
+                            // If it is a file, register its path and size.
+                            FileInfo fi = new FileInfo(fullPath);
+                            Sizes.Add(path, fi.Length);
+
+                            SizeEntry entry = new SizeEntry();
+                            long position = 0;
+                            bool known = SizesFile.GetRecord((ulong)fi.Length, out entry, out position);
+                            entry.Size = (ulong)fi.Length;
+                            if (!known) // Need to reset the entry's count because GetRecord gives
+                                        // undefined value if the entry is not found.
+                                entry.Count = 0;
+                            entry.Count++;
+                            SizesFile.WriteRecord(entry);
+
+                            if (Verbose)
+                                Console.WriteLine(" Size: " + fi.Length.ToString() + " bytes.");
+                        }
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.WriteLine("The path " + fullPath + " could not be accessed, because:");
+                        Console.ResetColor();
+                        Console.WriteLine(ex.Message);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("The directory " + directory + " could not be accessed, because:");
+                Console.ResetColor();
+                Console.WriteLine(ex.Message);
+            }
+
+            subfolderList.Remove(directory);
         }
 
         static void SearchSizes(string directory)
