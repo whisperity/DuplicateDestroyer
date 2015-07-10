@@ -9,10 +9,12 @@ namespace DuplicateDestroyer
 {
     struct SizeEntry
     {
-        public const int RecordSize = 8 + 8;
+        public const int RecordSize = 8 + 8 + 8 + 8;
 
         public ulong Size; // 8
         public ulong Count; // 8
+        public long FirstPath; // 8
+        public long LastPath; // 8
     }
 
     class SizeFile
@@ -37,6 +39,8 @@ namespace DuplicateDestroyer
                 {
                     br.ReadUInt64(); // Size (8)
                     br.ReadUInt64(); // Count (8)
+                    br.ReadInt64(); // First path (8)
+                    br.ReadInt64(); // Last path (8)
                     this.LastPosition = this.Stream.Position;
                 }
             }
@@ -54,6 +58,8 @@ namespace DuplicateDestroyer
                     SizeEntry se = new SizeEntry();
                     se.Size = br.ReadUInt64(); // 8
                     se.Count = br.ReadUInt64(); // 8
+                    se.FirstPath = br.ReadInt64(); // 8
+                    se.LastPath = br.ReadInt64(); // 8
 
                     lastReadPosition = this.Stream.Position;
                     yield return se;
@@ -121,6 +127,8 @@ namespace DuplicateDestroyer
                 this.Stream.Seek(position, SeekOrigin.Begin);
                 rec.Size = br.ReadUInt64(); // 8
                 rec.Count = br.ReadUInt64(); // 8
+                rec.FirstPath = br.ReadInt64(); // 8
+                rec.LastPath = br.ReadInt64(); // 8
             }
 
             return rec;
@@ -161,6 +169,8 @@ namespace DuplicateDestroyer
                 this.Stream.Seek(position, SeekOrigin.Begin);
                 bw.Write(rec.Size); // 8
                 bw.Write(rec.Count); // 8
+                bw.Write(rec.FirstPath); // 8
+                bw.Write(rec.LastPath); // 8
                 bw.Flush();
             }
         }

@@ -31,6 +31,8 @@ namespace DuplicateDestroyer
         static SizeFile SizesFile;
         static ulong SizeCount, FileCount;
 
+        static PathFile PathsFile;
+
         static void Main(string[] args)
         {
             Console.WriteLine("Duplicate Destroyer");
@@ -75,6 +77,10 @@ namespace DuplicateDestroyer
             SizesFileStream.SetLength(0);
             SizesFile = new SizeFile(SizesFileStream);
 
+            FileStream PathsFileStream = new FileStream(".dd_files", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+            PathsFileStream.SetLength(0);
+            PathsFile = new PathFile(PathsFileStream);
+
 
             FileRemoveException = false;
             TargetDirectory = "..\\..";
@@ -92,24 +98,15 @@ namespace DuplicateDestroyer
 
                 // The on-the-fly detected subfolders are added to the list while reading.
             }
-            //StreamDump(SizesFile);
-            //foreach (SizeEntry se in SizesFile.GetRecords())
-            //    Console.WriteLine("\tSize: " + se.Size + "\tCount: " + se.Count);
-
-            //Console.WriteLine(SizesFile.GetRecords().Sum(se => (long)se.Count).ToString() + " files found.");
             Console.WriteLine((!Verbose ? "\n" : String.Empty) + FileCount + " files found.");
 
             Console.Write("Analyzing sizes... ");
             AnalyzeSizes();
-            //Console.Write(SizesFile.GetRecords().Count().ToString() + " unique file size");
             Console.Write(SizeCount + " unique file size");
-            //StreamDump(SizesFile);
-            //foreach (SizeEntry se in SizesFile.GetRecords())
-            //    Console.WriteLine("\tSize: " + se.Size + "\tCount: " + se.Count);
-            //Console.WriteLine(" found for " + SizesFile.GetRecords().Sum(se => (long)se.Count).ToString() + " files.");
             Console.WriteLine(" found for " + FileCount + " files.");
 
             SizesFileStream.Dispose();
+            PathsFileStream.Dispose();
             Console.ReadLine();
             Environment.Exit(0);
 
@@ -303,6 +300,17 @@ namespace DuplicateDestroyer
                     SizesFile.DeleteRecord(rec.Size);
                     --SizeCount;
                     --FileCount;
+
+                    // Delete every record (there should be 1) that is associated with this size... they'll no longer be needed.
+                    if (rec.FirstPath != -1 && rec.LastPath != -1)
+                        if (rec.FirstPath != rec.LastPath)
+                            throw new InvalidDataException("Size's count is 1, but there appears to be multiple associated files to exist.");
+                        else
+                        {
+                            PathEntry entry;
+                            PathsFile.GetRecordAt(rec.FirstPath, out entry);
+                            PathsFile.DeleteRecord(entry, rec.FirstPath);
+                        }
                 }
             }
         }
@@ -489,30 +497,30 @@ namespace DuplicateDestroyer
                 int insertIndex = 0;
                 foreach (string path in Directory.EnumerateFileSystemEntries(directory, "*", SearchOption.TopDirectoryOnly))
                 {
-                    string fullPath = Path.GetFullPath(path).Replace(Directory.GetCurrentDirectory(), String.Empty).TrimStart('\\');
+                    string relativePath = Path.GetFullPath(path).Replace(Directory.GetCurrentDirectory(), String.Empty).TrimStart('\\');
 
                     // Skip some files which should not be access by the program
-                    if (Path.GetFullPath(path) == SizesFile.Stream.Name)
+                    if (Path.GetFullPath(path) == SizesFile.Stream.Name || Path.GetFullPath(path) == PathsFile.Stream.Name)
                         continue;
 
                     try
                     {
-                        if (Directory.Exists(fullPath))
+                        if (Directory.Exists(relativePath))
                         {
                             // If it is a directory, add it to the list of subfolders to check later on
                             if (Verbose)
-                                Console.WriteLine(fullPath + " is a subfolder.");
+                                Console.WriteLine(relativePath + " is a subfolder.");
 
                             // Add the found subfolders to the beginning of the list, but keep their natural order
-                            subfolderList.Insert(++insertIndex, fullPath);
+                            subfolderList.Insert(++insertIndex, relativePath);
                         }
-                        else if (File.Exists(fullPath))
+                        else if (File.Exists(relativePath))
                         {
                             if (Verbose)
-                                Console.Write("Measuring " + fullPath + "...");
+                                Console.Write("Measuring " + relativePath + "...");
 
-                            // If it is a file, register its path and size.
-                            FileInfo fi = new FileInfo(fullPath);
+                            // If it is a file, register its size and the count for its size
+                            FileInfo fi = new FileInfo(relativePath);
                             Sizes.Add(path, fi.Length);
 
                             SizeEntry entry = new SizeEntry();
@@ -525,8 +533,30 @@ namespace DuplicateDestroyer
                                 // undefined value if the entry is not found.
                                 entry.Count = 0;
                                 ++SizeCount;
+
+                                // The new size record currently has no associated PathEntry records in the path file.
+                                entry.FirstPath = -1;
+                                entry.LastPath = -1;
                             }
                             entry.Count++;
+
+                            // Also register its path
+                            PathEntry pathRec = new PathEntry(relativePath);
+                            long pathWrittenPosition;
+                            if (entry.LastPath != -1)
+                            {
+                                PathEntry previousLastEntry = new PathEntry();
+                                PathsFile.GetRecordAt(entry.LastPath, out previousLastEntry);
+                                pathWrittenPosition = PathsFile.AddAfter(previousLastEntry, pathRec, entry.LastPath);
+                            }
+                            else
+                            {
+                                pathWrittenPosition = PathsFile.WriteRecord(pathRec);
+
+                                entry.FirstPath = pathWrittenPosition;
+                            }
+
+                            entry.LastPath = pathWrittenPosition;
                             SizesFile.WriteRecord(entry);
 
                             if (Verbose)
@@ -554,7 +584,7 @@ namespace DuplicateDestroyer
                     catch (Exception ex)
                     {
                         Console.ForegroundColor = ConsoleColor.Yellow;
-                        Console.WriteLine("The path " + fullPath + " could not be accessed, because:");
+                        Console.WriteLine("The path " + relativePath + " could not be accessed, because:");
                         Console.ResetColor();
                         Console.WriteLine(ex.Message);
                     }
