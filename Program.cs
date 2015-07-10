@@ -23,8 +23,9 @@ namespace DuplicateDestroyer
         static bool AutoOldest;
         static bool AutoNewest;
         static bool FileRemoveException;
+
         static Dictionary<string, string> Files;
-        static Dictionary<string, long> Sizes;
+        //static Dictionary<string, long> Sizes;
         //static int FileCount;
         static string TargetDirectory;
 
@@ -88,7 +89,6 @@ namespace DuplicateDestroyer
             TargetDirectory = Directory.GetCurrentDirectory();
 
             Console.Write("Counting files and measuring sizes... " + (Verbose ? "\n" : String.Empty));
-            Sizes = new Dictionary<string, long>();
             List<string> Subfolders = new List<string>();
             Subfolders.Add(TargetDirectory);
             while (Subfolders.Count != 0)
@@ -98,48 +98,41 @@ namespace DuplicateDestroyer
 
                 // The on-the-fly detected subfolders are added to the list while reading.
             }
+            SizesFile.Stream.Flush(true);
+            PathsFile.Stream.Flush(true);
             Console.WriteLine((!Verbose ? "\n" : String.Empty) + FileCount + " files found.");
+            Console.WriteLine();
 
             Console.Write("Analyzing sizes... ");
             AnalyzeSizes();
             Console.Write(SizeCount + " unique file size");
             Console.WriteLine(" found for " + FileCount + " files.");
+            Console.WriteLine();
 
-            SizesFileStream.Dispose();
-            PathsFileStream.Dispose();
-            Console.ReadLine();
-            Environment.Exit(0);
-
-
+            Console.WriteLine("\n\nPrevious operation continues...");
+            //Console.ReadLine();
+            //Environment.Exit(0);
 
 
 
 
-            Console.Write("Counting files... ");
-            FileCount = (ulong)CountFiles(TargetDirectory);
-            Console.WriteLine(Convert.ToString(FileCount) + " files found.");
+
+            // Calculate the possible duplicates list for the previous version's operations
             Files = new Dictionary<string, string>((int)FileCount);
-            Console.WriteLine();
+            SortedList<long, List<string>> PossibleDuplicates = new SortedList<long,List<string>>(new FileSizeComparerDescending());
 
-            Console.WriteLine("Measuring file sizes...");
-            SearchSizes(TargetDirectory);
-            Console.WriteLine();
-
-            Console.Write("Analyzing sizes... ");
-            SortedList<long, List<string>> PossibleDuplicates;
-            AnalyzeSizes_Old(out PossibleDuplicates);
-
-            Console.Write(Convert.ToString(PossibleDuplicates.Count) + " unique file size");
-            int duplicate_size_amount = 0;
-            foreach (List<string> duplicates_of_a_size in PossibleDuplicates.Values)
+            foreach (SizeEntry size in SizesFile.GetRecords().Where(s => s.Count > 1))
             {
-                foreach (string file in duplicates_of_a_size)
-                {
-                    duplicate_size_amount++;
-                }
+                PathEntry firstEntry;
+                PathsFile.GetRecordAt(size.FirstPath, out firstEntry);
+
+                IEnumerable<string> duplicatesEnumable = PathsFile.GetRecords(firstEntry.Path, size.FirstPath, false).Select(pe => pe.Path);
+                List<string> duplicates = new List<string>();
+                duplicates.Add(firstEntry.Path);
+                duplicates.AddRange(duplicatesEnumable);
+
+                PossibleDuplicates.Add((long)size.Size, duplicates);
             }
-            Console.WriteLine(" found for " + Convert.ToString(duplicate_size_amount) + " files.");
-            Console.WriteLine();
 
             Console.WriteLine("Reading file contents...");
             System.Security.Cryptography.MD5CryptoServiceProvider mcsp = new System.Security.Cryptography.MD5CryptoServiceProvider();
@@ -260,6 +253,9 @@ namespace DuplicateDestroyer
                 }
             }
 
+            SizesFileStream.Dispose();
+            PathsFileStream.Dispose();
+
             Console.WriteLine("Press any key to exit...");
             Console.ReadKey();
 
@@ -313,20 +309,9 @@ namespace DuplicateDestroyer
                         }
                 }
             }
-        }
 
-        static void AnalyzeSizes_Old(out SortedList<long, List<string>> possibleDuplicates)
-        {
-            IEnumerable<long> duplicate_sizes =
-                Sizes.GroupBy(f => f.Value).Where(v => v.Count() > 1).Select(s => s.Key);
-
-            possibleDuplicates = new SortedList<long, List<string>>(new FileSizeComparerDescending());
-
-            foreach (long size in duplicate_sizes)
-            {
-                IEnumerable<string> duplicates = Sizes.Where(d => d.Value == size).Select(s => s.Key);
-                possibleDuplicates.Add(size, duplicates.ToList());
-            }
+            SizesFile.Stream.Flush(true);
+            PathsFile.Stream.Flush(true);
         }
 
         static void AnalyzeFilelist(out SortedList<string, List<string>> duplicateLists)
@@ -521,7 +506,6 @@ namespace DuplicateDestroyer
 
                             // If it is a file, register its size and the count for its size
                             FileInfo fi = new FileInfo(relativePath);
-                            Sizes.Add(path, fi.Length);
 
                             SizeEntry entry = new SizeEntry();
                             long position = 0;
@@ -599,56 +583,6 @@ namespace DuplicateDestroyer
             }
 
             subfolderList.Remove(directory);
-        }
-
-        static void SearchSizes(string directory)
-        {
-            try
-            {
-                foreach (string f in Directory.GetFiles(directory, "*", SearchOption.AllDirectories))
-                {
-                    if (Verbose == true)
-                    {
-                        Console.Write("Measuring " + Path.GetFileName(f) + "...");
-                    }
-
-                    FileInfo fi = new FileInfo(f);
-
-                    Sizes.Add(f, fi.Length);
-
-                    if (Verbose == true)
-                    {
-                        Console.WriteLine(" Size: " + Convert.ToString(fi.Length) + " bytes.");
-                    }
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Unable to check folder. An exception happened: " + ex.Message);
-                Console.WriteLine("Press any key to exit...");
-                Console.ReadKey();
-                Environment.Exit(1);
-            }
-        }
-
-        static int CountFiles(string directory)
-        {
-            int c = 0;
-            try
-            {
-                foreach (string f in Directory.GetFiles(directory, "*", SearchOption.AllDirectories))
-                {
-                    c++;
-                }
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine("Unable to count files. An exception happened: " + ex.Message);
-                Console.WriteLine("Press any key to exit...");
-                Console.ReadKey();
-                Environment.Exit(1);
-            }
-            return c;
         }
     }
 }

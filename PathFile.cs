@@ -152,7 +152,7 @@ namespace DuplicateDestroyer
                 bw.Write(rec.MD5); // 32
                 bw.Write(rec.NextRecord); // 8
             }
-            this.Stream.Flush(true);
+            this.Stream.Flush();
 
             return pos;
         }
@@ -169,7 +169,7 @@ namespace DuplicateDestroyer
                 bw.Write(rec.MD5); // 32
                 bw.Write(rec.NextRecord); // 8
             }
-            this.Stream.Flush(true);
+            this.Stream.Flush();
         }
 
         public long AddAfter(PathEntry node, PathEntry entry, long nodePosition = -1)
@@ -201,12 +201,26 @@ namespace DuplicateDestroyer
             return insertedPosition;
         }
 
-        public IEnumerable<PathEntry> GetRecords(string path, bool traverseBackwards = false)
+        public IEnumerable<PathEntry> GetRecords(string path, long pos = -1, bool traverseBackwards = false)
         {
             PathEntry entry = new PathEntry();
-            long pos = -1;
 
-            if (GetRecord(path, out entry, out pos))
+            // Try to find the record given for traversal
+            bool recordFound;
+            if (pos == -1)
+                recordFound = GetRecord(path, out entry, out pos);
+            else
+            {
+                recordFound = GetRecordAt(pos, out entry);
+
+                // GetRecordAt doesn't check just gives the record as result.
+                // Bail out if the given record is not the right one we searched for...
+                if (entry.Path != path)
+                    recordFound = false;
+            }
+
+            // Get the rest of the records and given them in the enumerable
+            if (recordFound)
             {
                 long nextPositionToRead;
                 if (traverseBackwards)
@@ -251,8 +265,6 @@ namespace DuplicateDestroyer
 
             if (rec.Path != already.Path)
                 throw new ArgumentException("The record at the given position does not match the given record.");
-
-            Console.WriteLine("Would delete record " + already.Path);
 
             // When a record is deleted, the broken chain that was going through them has to be reconnected
             // A -> B -> C with B's deletion becomes A -> C

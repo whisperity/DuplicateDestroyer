@@ -55,6 +55,7 @@ namespace DuplicateDestroyer
                 long lastReadPosition = 0;
                 while (lastReadPosition < this.Stream.Length)
                 {
+                    this.Stream.Seek(lastReadPosition, SeekOrigin.Begin);
                     SizeEntry se = new SizeEntry();
                     se.Size = br.ReadUInt64(); // 8
                     se.Count = br.ReadUInt64(); // 8
@@ -171,7 +172,7 @@ namespace DuplicateDestroyer
                 bw.Write(rec.Count); // 8
                 bw.Write(rec.FirstPath); // 8
                 bw.Write(rec.LastPath); // 8
-                bw.Flush();
+                this.Stream.Flush();
             }
         }
 
@@ -268,7 +269,7 @@ namespace DuplicateDestroyer
                 // And write it.
                 this.Stream.Seek(writePosition, SeekOrigin.Begin);
                 this.Stream.Write(buffer, 0, bytesToRead);
-                this.Stream.Flush(true);
+                this.Stream.Flush();
 
                 // Align the two intermediate pointers to the new locations for the next operation.
                 // (The read and write positions should always be having a distance of 'difference' between each other.)
@@ -300,7 +301,7 @@ namespace DuplicateDestroyer
                 byteCount += bytesToRead; // Mark the currently done bytes... 'done'
             }
 
-            this.Stream.Flush(true);
+            this.Stream.Flush();
             if (difference < 0)
                 // If the move operation was to shrink, we eliminate the overhead at the end of the file.
                 this.Stream.SetLength(this.Stream.Length + difference); // (still a - :) )
