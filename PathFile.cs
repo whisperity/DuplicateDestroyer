@@ -12,10 +12,10 @@ namespace DuplicateDestroyer
         // Offsets where the previous and next record is in the datafile (-1 indicates NIL)
         public bool Deleted; // 1 (true if the record is deleted and should be skipped)
         public long PrevRecord; // 8
+        public long NextRecord; // 8
         public ushort PathLength; // 2
         public string Path; // n
-        public byte[] MD5; // 32
-        public long NextRecord; // 8
+        public string Hash; // 32 (MD5 is used)
 
         public int RecordSize { get { return 1 + 8 + 2 + PathLength + 32 + 8; } }
 
@@ -23,10 +23,10 @@ namespace DuplicateDestroyer
         {
             this.Deleted = false;
             this.PrevRecord = -1;
+            this.NextRecord = -1;
             this.PathLength = Convert.ToUInt16(Encoding.UTF8.GetByteCount(path));
             this.Path = path;
-            this.MD5 = Encoding.UTF8.GetBytes(new String('0', 32));
-            this.NextRecord = -1;
+            this.Hash = new String('0', 32);
         }
     }
 
@@ -53,11 +53,11 @@ namespace DuplicateDestroyer
 
                     record.Deleted = br.ReadBoolean(); // 1
                     record.PrevRecord = br.ReadInt64(); // 8
+                    record.NextRecord = br.ReadInt64(); // 8
                     record.PathLength = br.ReadUInt16(); // Path length (2)
                     byte[] path_bytes = br.ReadBytes(record.PathLength); // n
                     record.Path = Encoding.UTF8.GetString(path_bytes);
-                    record.MD5 = br.ReadBytes(32); // 32
-                    record.NextRecord = br.ReadInt64(); // 8
+                    record.Hash = Encoding.UTF8.GetString(br.ReadBytes(32)); // 32
 
                     position = this.Stream.Position;
 
@@ -87,11 +87,11 @@ namespace DuplicateDestroyer
                     position = this.Stream.Position;
                     record.Deleted = br.ReadBoolean(); // 1
                     record.PrevRecord = br.ReadInt64(); // 8
+                    record.NextRecord = br.ReadInt64(); // 8
                     record.PathLength = br.ReadUInt16(); // Path length.
                     byte[] path_bytes = br.ReadBytes(record.PathLength); // n
                     record.Path = Encoding.UTF8.GetString(path_bytes);
-                    record.MD5 = br.ReadBytes(32); // 32
-                    record.NextRecord = br.ReadInt64(); // 8
+                    record.Hash = Encoding.UTF8.GetString(br.ReadBytes(32)); // 32
 
                     if (record.Path == path && !record.Deleted)
                         found = true;
@@ -116,20 +116,20 @@ namespace DuplicateDestroyer
 
                     record.Deleted = br.ReadBoolean(); // 1
                     record.PrevRecord = br.ReadInt64(); // 8
+                    record.NextRecord = br.ReadInt64(); // 8
                     record.PathLength = br.ReadUInt16(); // Path length (2)
                     byte[] path_bytes = br.ReadBytes(record.PathLength); // n
                     record.Path = Encoding.UTF8.GetString(path_bytes);
-                    record.MD5 = br.ReadBytes(32); // 32
-                    record.NextRecord = br.ReadInt64(); // 8
+                    record.Hash = Encoding.UTF8.GetString(br.ReadBytes(32)); // 32
                 }
                 catch (Exception e)
                 {
                     record.Deleted = true;
-                    record.PrevRecord = -1;
-                    record.PathLength = 0;
+                    //record.PrevRecord = -1;
+                    //record.NextRecord = -1;
+                    //record.PathLength = 0;
                     record.Path = e.Message;
-                    record.MD5 = new byte[32];
-                    record.NextRecord = -1;
+                    //record.Hash = String.Empty;
 
                     return false;
                 }
@@ -147,10 +147,10 @@ namespace DuplicateDestroyer
                 pos = bw.BaseStream.Position;
                 bw.Write(rec.Deleted); // 1
                 bw.Write(rec.PrevRecord); // 8
+                bw.Write(rec.NextRecord); // 8
                 bw.Write(rec.PathLength); // 2
                 bw.Write(Encoding.UTF8.GetBytes(rec.Path)); // n
-                bw.Write(rec.MD5); // 32
-                bw.Write(rec.NextRecord); // 8
+                bw.Write(Encoding.UTF8.GetBytes(rec.Hash)); // 32
             }
             this.Stream.Flush();
 
@@ -164,10 +164,10 @@ namespace DuplicateDestroyer
             {
                 bw.Write(rec.Deleted); // 1
                 bw.Write(rec.PrevRecord); // 8
+                bw.Write(rec.NextRecord); // 8
                 bw.Write(rec.PathLength); // 2
                 bw.Write(Encoding.UTF8.GetBytes(rec.Path)); // n
-                bw.Write(rec.MD5); // 32
-                bw.Write(rec.NextRecord); // 8
+                bw.Write(Encoding.UTF8.GetBytes(rec.Hash)); // 32
             }
             this.Stream.Flush();
         }
@@ -309,6 +309,10 @@ namespace DuplicateDestroyer
         private const int MaxConsolidateCount = 4096;
         public long Consolidate()
         {
+            // TODO: Add support for moving the pointers in a SizeFile backwards because even though in-situ
+            // this file is consolidated, the first and last path pointers are heavily invalidated.
+            throw new NotImplementedException("Prevention of SizeFile invalidation is not implemented.");
+
             // Calling this method physically eliminates the deleted records from the datafile
 
             long fullCount = GetRecords().LongCount();
@@ -346,17 +350,17 @@ namespace DuplicateDestroyer
 
                     bool deleted = br.ReadBoolean(); // 1
                     br.ReadInt64(); // 8
+                    br.ReadInt64(); // 8
                     ushort pathLength = br.ReadUInt16(); // 2
                     string path = Encoding.UTF8.GetString(br.ReadBytes(pathLength)); // n
                     br.ReadBytes(32); // 32
-                    br.ReadInt64(); // 8
 
                     position = this.Stream.Position; // Save out where the read head currently is (on the beginning of the next record)
 
                     // If we found a deleted record, mark its position and length
                     if (deleted)
                     {
-                        currentMoveOffset = 1 + 8 + 2 + pathLength + 32 + 8; // The size of the found deleted record
+                        currentMoveOffset = 1 + 8 + 8 + 2 + pathLength + 32; // The size of the found deleted record
 
                         // Mark it for physical deletion
                         moveOffsets.Add(new KeyValuePair<long, long>(recordStartPosition, currentMoveOffset));
@@ -392,11 +396,11 @@ namespace DuplicateDestroyer
                     br.ReadBoolean(); // 1
                     prevRecordPtrPosition = this.Stream.Position;
                     long prevRecord = br.ReadInt64(); // 8
+                    nextRecordPtrPosition = this.Stream.Position;
+                    long nextRecord = br.ReadInt64(); // 8
                     ushort pathLength = br.ReadUInt16(); // 2
                     string path = Encoding.UTF8.GetString(br.ReadBytes(pathLength)); // n
                     br.ReadBytes(32); // 32
-                    nextRecordPtrPosition = this.Stream.Position;
-                    long nextRecord = br.ReadInt64(); // 8
 
                     pullPosition = this.Stream.Position; // Save out where the read head ended
 

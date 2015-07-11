@@ -127,7 +127,7 @@ namespace DuplicateDestroyer
                     {
                         string hash = CalculateHash(ref mcsp, entry.Path);
 
-                        entry.MD5 = Encoding.UTF8.GetBytes(hash);
+                        entry.Hash = hash;
                         PathsFile.WriteRecordAt(entry, position);
 
                         position = entry.NextRecord; // Jump to the next record in the chain
@@ -272,7 +272,7 @@ namespace DuplicateDestroyer
                 // I really don't like var, but
                 // System.Linq.Enumerable.WhereSelectEnumerableIterator<System.Linq.IGrouping<string,DuplicateDestroyer.PathEntry>,<>f__AnonymousType0<string,System.Collections.Generic.IEnumerable<string>>>
                 var fileGroupsWithThisSize = PathsFile.GetRecords(firstEntry.Path, se.FirstPath, false)
-                    .GroupBy(pf => Encoding.UTF8.GetString(pf.MD5))
+                    .GroupBy(pf => pf.Hash)
                     .Where(group => group.Count() > 1)
                     .Select(hash => new
                     {
