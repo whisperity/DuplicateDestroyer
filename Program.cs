@@ -25,8 +25,6 @@ namespace DuplicateDestroyer
         static bool AutoNewest;
         static bool FileRemoveException;
 
-        //static Dictionary<string, long> Sizes;
-        //static int FileCount;
         static string TargetDirectory;
 
         static SizeFile SizesFile;
@@ -107,10 +105,8 @@ namespace DuplicateDestroyer
             Console.WriteLine(" found for " + FileCount + " files.");
             Console.WriteLine();
 
-            Console.WriteLine("\n\nPrevious operation continues...");
-            //Console.ReadLine();
-            //Environment.Exit(0);
 
+            //PathsFile.Consolidate(new SizeFileAligner(Program.AlignSizeFilePointers));
 
             Console.WriteLine("Reading file contents...");
             MD5CryptoServiceProvider mcsp = new MD5CryptoServiceProvider();
@@ -523,6 +519,7 @@ namespace DuplicateDestroyer
             // After the file sizes are read, we eliminate every size which refers to one file
             // As there could not be duplicates that way.
 
+            // Go from the back to make the least write overhead when a record is deleted
             for (long i = SizesFile.RecordCount - 1; i >= 0; --i)
             {
                 SizeEntry rec = new SizeEntry();
@@ -710,7 +707,58 @@ namespace DuplicateDestroyer
             if (difference < 0)
                 // If the move operation was to shrink, we eliminate the overhead at the end of the file.
                 Stream.SetLength(Stream.Length + difference); // (still a - :) )
+
+            // TODO: DUMP
+            //this.Stream.Seek(0, SeekOrigin.Begin);
+            //byte[] buf2 = new byte[this.Stream.Length];
+            //this.Stream.Read(buf2, 0, (int)this.Stream.Length);
+            //Console.WriteLine("File contents AFTER move:");
+            //Console.WriteLine(DuplicateDestroyer.Program2.GetDump(buf2));
+            // End TODO
         }
         #endregion
+
+        // Helper function to align the pointers in a SizeFile data if a PathFile Consolidate() is happening
+        internal delegate void SizeFileAligner(ref List<KeyValuePair<long, long>> moveOffsets);
+        private static void AlignSizeFilePointers(ref List<KeyValuePair<long, long>> moveOffsets)
+        {
+            // When PathFile Consolidate() happens, records in the PathFile usually move towards the beginning of the file
+            // This invalidates the pointer in the SizeFile, so they need also to be aligned
+
+            // moveOffset's KeyValuePairs' layout: Key is the offset which was moved and Value is by how much it was moved
+            // Every pointer pointing to a position further than a Key must be "pulled back" by Value
+
+            if (moveOffsets.Count == 0)
+                return;
+
+            for (long i = 0; i < SizesFile.RecordCount; ++i)
+            {
+                SizeEntry se = SizesFile.GetRecordByIndex(i);
+
+                // For each size file, check if its pointers point behind a position key
+                if (se.FirstPath >= moveOffsets[0].Key || se.LastPath >= moveOffsets[0].Key)
+                {
+                    long firstPtrMoveBy = 0;
+                    long lastPtrMoveBy = 0;
+
+                    foreach (KeyValuePair<long, long> kv in moveOffsets)
+                    {
+                        if (se.FirstPath >= kv.Key)
+                            firstPtrMoveBy += kv.Value;
+
+                        if (se.LastPath >= kv.Key)
+                            lastPtrMoveBy += kv.Value;
+                    }
+
+                    if (firstPtrMoveBy != 0)
+                        se.FirstPath -= firstPtrMoveBy;
+
+                    if (lastPtrMoveBy != 0)
+                        se.LastPath -= lastPtrMoveBy;
+
+                    SizesFile.WriteRecordAt(se, i * SizeEntry.RecordSize);
+                }
+            }
+        }
     }
 }

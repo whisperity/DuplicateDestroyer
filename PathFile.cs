@@ -307,12 +307,8 @@ namespace DuplicateDestroyer
         }
 
         private const int MaxConsolidateCount = 4096;
-        public long Consolidate()
+        public long Consolidate(Program.SizeFileAligner sizeFileAligner)
         {
-            // TODO: Add support for moving the pointers in a SizeFile backwards because even though in-situ
-            // this file is consolidated, the first and last path pointers are heavily invalidated.
-            throw new NotImplementedException("Prevention of SizeFile invalidation is not implemented.");
-
             // Calling this method physically eliminates the deleted records from the datafile
 
             long fullCount = GetRecords().LongCount();
@@ -382,6 +378,9 @@ namespace DuplicateDestroyer
                     if (position >= moveOffsets[i].Key)
                         position -= moveOffsets[i].Value;
                 }
+
+                // Call the delegate to align the pointers in the SizeFile
+                sizeFileAligner(ref moveOffsets);
 
                 // Now the chains of the doubly linked list is broken, because records have been moved and this invalidated the pointers
                 long pullPosition = 0;
