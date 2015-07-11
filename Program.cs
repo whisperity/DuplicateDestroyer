@@ -293,6 +293,9 @@ namespace DuplicateDestroyer
 
                 if (rec.Count == 1 || rec.Count == 0)
                 {
+                    if (Verbose)
+                        Console.Write("Size " + rec.Size + " has " + rec.Count + " files assigned.");
+
                     SizesFile.DeleteRecord(rec.Size);
                     --SizeCount;
                     --FileCount;
@@ -306,7 +309,13 @@ namespace DuplicateDestroyer
                             PathEntry entry;
                             PathsFile.GetRecordAt(rec.FirstPath, out entry);
                             PathsFile.DeleteRecord(entry, rec.FirstPath);
+
+                            if (Verbose)
+                                Console.Write(" Ignored " + entry.Path);
                         }
+
+                    if (Verbose)
+                        Console.WriteLine();
                 }
             }
 
@@ -584,5 +593,127 @@ namespace DuplicateDestroyer
 
             subfolderList.Remove(directory);
         }
+
+        #region Stream methods
+        private const int MaxBufferSize = 2 << 12; // 2^13 = 8192, 8 KiB
+
+        public static void MoveEndPart(Stream Stream, long position, long difference)
+        {
+            // Move all the bytes from position to the end of the stream to a new position.
+            // (In either direction.)
+            if (position < 0)
+                throw new ArgumentOutOfRangeException("The initial position from where the content should be moved can't be negative.");
+            else if (position > Stream.Length)
+                throw new ArgumentOutOfRangeException("The initial position from where the content should be moved must be inside the stream.");
+
+            if (position == Stream.Length && difference < 0)
+            {
+                // Shrink the stream by the given size
+                Stream.SetLength(Stream.Length + difference); // actually a - :)
+                return;
+            }
+
+            if (difference == 0 || position == Stream.Length)
+                return; // Noop, nothing to move.
+
+            if (position + difference < 0)
+                throw new ArgumentOutOfRangeException("Requested to move bytes before the beginning of the stream.");
+
+            // First, we calculate how many bytes are there to be moved.
+            long fullByteCount = Stream.Length - position;
+
+            // This blob is to be chunked up based on MaxBufferSize.
+            // For every move operation, a such buffer will be read and written out.
+            Stream.Seek(position, SeekOrigin.Begin);
+            long currentPosition = position;
+            long newPosition = position + difference; // Where the moved bytes will begin after the move
+
+            if (fullByteCount == 0)
+                return; // Noop, nothing to move.
+
+            // Calculate a buffer size to use
+            int bufferSize;
+            if (fullByteCount > MaxBufferSize)
+                bufferSize = MaxBufferSize;
+            else
+                bufferSize = (int)Math.Pow(2, Math.Ceiling(Math.Log(fullByteCount, 2)));
+            byte[] buffer = new byte[bufferSize];
+
+            long byteCount = 0; // The count of "done" bytes we already moved
+            long readPosition = -1, writePosition = -1; // Two pointers where the next read and write operation will work.
+
+            if (difference > 0)
+            {
+                // If we are moving FORWARD, the first chunk to be read is the LAST in the file.
+                // We start from the right.
+                readPosition = Stream.Length - bufferSize;
+                writePosition = readPosition + difference;
+
+                // Also, if we are moving forward, the stream has to be increased in size.
+                Stream.SetLength(Stream.Length + difference);
+            }
+            else if (difference < 0)
+            {
+                // If we are moving BACKWARDS, the first chunk to be read is the FIRST
+                // We start from the left.
+                readPosition = position;
+                writePosition = readPosition + difference; // (well, actually a - here :) )
+            }
+
+            int bytesToRead = 0;
+            while (byteCount < fullByteCount)
+            {
+                buffer = new byte[bufferSize]; // TODO: this isn't needed, just debug cleanup.
+                // If the number of remaining bytes would be smaller than the buffer size, read a partial buffer.
+                if (fullByteCount - byteCount < bufferSize)
+                    bytesToRead = Convert.ToInt32(fullByteCount - byteCount);
+                else
+                    bytesToRead = bufferSize;
+
+                // Read the chunk.
+                Stream.Seek(readPosition, SeekOrigin.Begin);
+                Stream.Read(buffer, 0, bytesToRead);
+
+                // And write it.
+                Stream.Seek(writePosition, SeekOrigin.Begin);
+                Stream.Write(buffer, 0, bytesToRead);
+                Stream.Flush();
+
+                // Align the two intermediate pointers to the new locations for the next operation.
+                // (The read and write positions should always be having a distance of 'difference' between each other.)
+                if (difference > 0)
+                {
+                    // If we are moving the bytes FORWARD, the read head moves BACKWARDS, because we started from the right.
+
+                    // Read and write positions could underflow this way.
+                    // If the last remaining chunk is smaller than the buffer and would begin before the initial start position...
+                    // we correct it.
+                    if (readPosition - bytesToRead < position)
+                    {
+                        readPosition = position;
+                        writePosition = position + difference;
+                    }
+                    else
+                    {
+                        readPosition -= bytesToRead;
+                        writePosition -= bytesToRead;
+                    }
+                }
+                else if (difference < 0)
+                {
+                    // If we are moving the bytes BACKWARD, the read and write moves FORWARD, because we started form the left.
+                    readPosition += bytesToRead;
+                    writePosition += bytesToRead;
+                }
+
+                byteCount += bytesToRead; // Mark the currently done bytes... 'done'
+            }
+
+            Stream.Flush();
+            if (difference < 0)
+                // If the move operation was to shrink, we eliminate the overhead at the end of the file.
+                Stream.SetLength(Stream.Length + difference); // (still a - :) )
+        }
+        #endregion
     }
 }

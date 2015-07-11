@@ -303,5 +303,141 @@ namespace DuplicateDestroyer
 
             WriteRecordAt(already, position);
         }
+
+        private const int MaxConsolidateCount = 4096;
+        public void Consolidate()
+        {
+            // Calling this method physically eliminates the deleted records from the datafile
+
+            long fullCount = GetRecords().LongCount();
+            long nonDeletedCount = GetRecords(true).LongCount();
+            long removedCount = 0; // Will count how many records we have acutally, physically removed
+
+            // (Don't use Dictionary<> here. List<> will be faster in this operation as we don't
+            // care about the association and will always read this collection sequentially.)
+            int consolidateLimit;
+            if (((int)fullCount - nonDeletedCount) < MaxConsolidateCount)
+                consolidateLimit = (int)(fullCount - nonDeletedCount);
+            else
+                consolidateLimit = MaxConsolidateCount;
+
+            List<KeyValuePair<long, long>> moveOffsets = new List<KeyValuePair<long, long>>(consolidateLimit);
+
+            // First, we will read the storage sequentially and find every 'Deleted' record.
+            BinaryReader br = new BinaryReader(this.Stream, Encoding.UTF8, true);
+            BinaryWriter bw = new BinaryWriter(this.Stream, Encoding.UTF8, true);
+
+            long position = 0;
+            while (removedCount < (fullCount - nonDeletedCount))
+            {
+                // Read the stream and search for logically (marked) deleted records.
+                // Can't use GetRecords() here because the enumeration is modified while processing it.
+                this.Stream.Seek(position, SeekOrigin.Begin);
+
+                bool stopSeeking = false;
+                long currentMoveOffset = 0;
+                long recordStartPosition = 0;
+                while (position < this.Stream.Length && !stopSeeking)
+                {
+                    // Read a record
+                    recordStartPosition = this.Stream.Position; // Mark where the record has begun
+
+                    bool deleted = br.ReadBoolean(); // 1
+                    br.ReadInt64(); // 8
+                    ushort pathLength = br.ReadUInt16(); // 2
+                    string path = Encoding.UTF8.GetString(br.ReadBytes(pathLength)); // n
+                    br.ReadBytes(32); // 32
+                    br.ReadInt64(); // 8
+
+                    position = this.Stream.Position; // Save out where the read head currently is (on the beginning of the next record)
+
+                    // If we found a deleted record, mark its position and length
+                    if (deleted)
+                    {
+                        currentMoveOffset = 1 + 8 + 2 + pathLength + 32 + 8; // The size of the found deleted record
+
+                        // Mark it for physical deletion
+                        moveOffsets.Add(new KeyValuePair<long, long>(recordStartPosition, currentMoveOffset));
+
+                        // Don't continue searching for deleted records if a limit has been hit
+                        if (moveOffsets.Count >= consolidateLimit)
+                            stopSeeking = true;
+                    }
+                }
+
+                // After a certain number of deleted records are found (or every deleted record is found without reaching said limit)
+                // Delete the records physically by pulling the records coming after it back by 'currentMoveOffset' bytes.
+                for (int i = moveOffsets.Count - 1; i >= 0; --i)
+                {
+                    Program.MoveEndPart(this.Stream, moveOffsets[i].Key + moveOffsets[i].Value, -moveOffsets[i].Value);
+
+                    // As the records move backwards because of the deletions, the record at 'position'
+                    // (the next after the last marked-for-deletion-one also moves backwards.
+                    if (position >= moveOffsets[i].Key)
+                        position -= moveOffsets[i].Value;
+                }
+
+                // Now the chains of the doubly linked list is broken, because records have been moved and this invalidated the pointers
+                long pullPosition = 0;
+                this.Stream.Seek(0, SeekOrigin.Begin);
+
+                while (pullPosition < this.Stream.Length)
+                {
+                    // Iterate every record and align their pointers
+                    long prevRecordPtrPosition, nextRecordPtrPosition;
+
+                    // Read a record
+                    br.ReadBoolean(); // 1
+                    prevRecordPtrPosition = this.Stream.Position;
+                    long prevRecord = br.ReadInt64(); // 8
+                    ushort pathLength = br.ReadUInt16(); // 2
+                    string path = Encoding.UTF8.GetString(br.ReadBytes(pathLength)); // n
+                    br.ReadBytes(32); // 32
+                    nextRecordPtrPosition = this.Stream.Position;
+                    long nextRecord = br.ReadInt64(); // 8
+
+                    pullPosition = this.Stream.Position; // Save out where the read head ended
+
+                    if (prevRecord >= moveOffsets[0].Key || nextRecord >= moveOffsets[0].Key)
+                    {
+                        // Accumulate how much the pointers have to be moved to get valid again
+                        long prevPtrMoveBy = 0;
+                        long nextPtrMoveBy = 0;
+
+                        foreach (KeyValuePair<long, long> kv in moveOffsets)
+                        {
+                            if (prevRecord >= kv.Key)
+                                prevPtrMoveBy += kv.Value;
+
+                            if (nextRecord >= kv.Key)
+                                nextPtrMoveBy += kv.Value;
+                        }
+
+                        if (prevPtrMoveBy != 0)
+                        {
+                            this.Stream.Seek(prevRecordPtrPosition, SeekOrigin.Begin);
+                            prevRecord -= prevPtrMoveBy;
+                            bw.Write(prevRecord); // 8
+                        }
+
+                        if (nextPtrMoveBy != 0)
+                        {
+                            this.Stream.Seek(nextRecordPtrPosition, SeekOrigin.Begin);
+                            nextRecord -= nextPtrMoveBy;
+                            bw.Write(nextRecord); // 8
+                        }
+
+                        this.Stream.Seek(pullPosition, SeekOrigin.Begin); // Go back where we last ended reading
+                    }
+                }
+
+                // Mark that some entries have been removed, empty the offset list and continue working
+                removedCount += moveOffsets.Count;
+                moveOffsets.Clear();
+            }
+
+            br.Dispose();
+            bw.Dispose();
+        }
     }
 }
