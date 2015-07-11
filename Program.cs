@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Text;
+using System.Security.Cryptography;
 
 namespace DuplicateDestroyer
 {
@@ -24,7 +25,6 @@ namespace DuplicateDestroyer
         static bool AutoNewest;
         static bool FileRemoveException;
 
-        static Dictionary<string, string> Files;
         //static Dictionary<string, long> Sizes;
         //static int FileCount;
         static string TargetDirectory;
@@ -84,8 +84,6 @@ namespace DuplicateDestroyer
 
 
             FileRemoveException = false;
-            TargetDirectory = "..\\..";
-            Directory.SetCurrentDirectory(TargetDirectory);
             TargetDirectory = Directory.GetCurrentDirectory();
 
             Console.Write("Counting files and measuring sizes... " + (Verbose ? "\n" : String.Empty));
@@ -103,8 +101,8 @@ namespace DuplicateDestroyer
             Console.WriteLine((!Verbose ? "\n" : String.Empty) + FileCount + " files found.");
             Console.WriteLine();
 
-            Console.Write("Analyzing sizes... ");
-            AnalyzeSizes();
+            Console.Write("Analysing sizes... ");
+            AnalyseSizes();
             Console.Write(SizeCount + " unique file size");
             Console.WriteLine(" found for " + FileCount + " files.");
             Console.WriteLine();
@@ -114,41 +112,33 @@ namespace DuplicateDestroyer
             //Environment.Exit(0);
 
 
-
-
-
-            // Calculate the possible duplicates list for the previous version's operations
-            Files = new Dictionary<string, string>((int)FileCount);
-            SortedList<long, List<string>> PossibleDuplicates = new SortedList<long,List<string>>(new FileSizeComparerDescending());
-
-            foreach (SizeEntry size in SizesFile.GetRecords().Where(s => s.Count > 1))
-            {
-                PathEntry firstEntry;
-                PathsFile.GetRecordAt(size.FirstPath, out firstEntry);
-
-                IEnumerable<string> duplicatesEnumable = PathsFile.GetRecords(firstEntry.Path, size.FirstPath, false).Select(pe => pe.Path);
-                List<string> duplicates = new List<string>();
-                duplicates.Add(firstEntry.Path);
-                duplicates.AddRange(duplicatesEnumable);
-
-                PossibleDuplicates.Add((long)size.Size, duplicates);
-            }
-
             Console.WriteLine("Reading file contents...");
-            System.Security.Cryptography.MD5CryptoServiceProvider mcsp = new System.Security.Cryptography.MD5CryptoServiceProvider();
+            MD5CryptoServiceProvider mcsp = new MD5CryptoServiceProvider();
 
-            foreach (List<string> duplicated_size in PossibleDuplicates.Values)
+            foreach (SizeEntry duplicated_size in SizesFile.GetRecords())
             {
-                foreach (string file in duplicated_size)
+                // For each size entry, iterate the path list
+                PathEntry entry;
+                long position = duplicated_size.FirstPath;
+
+                while (position != -1)
                 {
-                    Files.Add(file, CalculateHash(ref mcsp, file));
+                    if (PathsFile.GetRecordAt(position, out entry))
+                    {
+                        string hash = CalculateHash(ref mcsp, entry.Path);
+
+                        entry.MD5 = Encoding.UTF8.GetBytes(hash);
+                        PathsFile.WriteRecordAt(entry, position);
+
+                        position = entry.NextRecord; // Jump to the next record in the chain
+                    }
                 }
             }
             Console.WriteLine();
 
             Console.WriteLine("Searching for true duplication... ");
             SortedList<string, List<string>> DuplicateHashesList;
-            AnalyzeFilelist(out DuplicateHashesList);
+            AnalyseFilelist(out DuplicateHashesList);
 
             Console.Write(Convert.ToString(DuplicateHashesList.Count) + " unique content");
             int duplicate_file_amount = 0;
@@ -269,71 +259,29 @@ namespace DuplicateDestroyer
             }
         }
 
-        static void AnalyzeSizes()
+        static void AnalyseFilelist(out SortedList<string, List<string>> duplicateLists)
         {
-            // After the file sizes are read, we eliminate every size which refers to one file
-            // As there could not be duplicates that way.
-
-            for (long i = SizesFile.RecordCount - 1; i >= 0; --i)
-            {
-                SizeEntry rec = new SizeEntry();
-                try
-                {
-                    rec = SizesFile.GetRecordByIndex(i);
-                }
-                catch (Exception ex)
-                {
-                    //Console.ForegroundColor = ConsoleColor.Yellow;
-                    //Console.WriteLine("Couldn't get, because");
-                    //Console.ResetColor();
-                    //Console.WriteLine(ex.Message);
-
-                    continue;
-                }
-
-                if (rec.Count == 1 || rec.Count == 0)
-                {
-                    if (Verbose)
-                        Console.Write("Size " + rec.Size + " has " + rec.Count + " files assigned.");
-
-                    SizesFile.DeleteRecord(rec.Size);
-                    --SizeCount;
-                    --FileCount;
-
-                    // Delete every record (there should be 1) that is associated with this size... they'll no longer be needed.
-                    if (rec.FirstPath != -1 && rec.LastPath != -1)
-                        if (rec.FirstPath != rec.LastPath)
-                            throw new InvalidDataException("Size's count is 1, but there appears to be multiple associated files to exist.");
-                        else
-                        {
-                            PathEntry entry;
-                            PathsFile.GetRecordAt(rec.FirstPath, out entry);
-                            PathsFile.DeleteRecord(entry, rec.FirstPath);
-
-                            if (Verbose)
-                                Console.Write(" Ignored " + entry.Path);
-                        }
-
-                    if (Verbose)
-                        Console.WriteLine();
-                }
-            }
-
-            SizesFile.Stream.Flush(true);
-            PathsFile.Stream.Flush(true);
-        }
-
-        static void AnalyzeFilelist(out SortedList<string, List<string>> duplicateLists)
-        {
-            IEnumerable<string> duplicate_hashes =
-                Files.GroupBy(f => f.Value).Where(v => v.Count() > 1).Select(h => h.Key);
-
             duplicateLists = new SortedList<string, List<string>>();
 
-            foreach (string hash in duplicate_hashes)
+            foreach (SizeEntry se in SizesFile.GetRecords())
             {
-                IEnumerable<string> duplicates = Files.Where(d => d.Value == hash).Select(s => s.Key);
-                duplicateLists.Add(hash, duplicates.ToList());
+                PathEntry firstEntry;
+                PathsFile.GetRecordAt(se.FirstPath, out firstEntry);
+
+                // TODO: obviously, this will also go into a file backend!
+                // I really don't like var, but
+                // System.Linq.Enumerable.WhereSelectEnumerableIterator<System.Linq.IGrouping<string,DuplicateDestroyer.PathEntry>,<>f__AnonymousType0<string,System.Collections.Generic.IEnumerable<string>>>
+                var fileGroupsWithThisSize = PathsFile.GetRecords(firstEntry.Path, se.FirstPath, false)
+                    .GroupBy(pf => Encoding.UTF8.GetString(pf.MD5))
+                    .Where(group => group.Count() > 1)
+                    .Select(hash => new
+                    {
+                        Hash = hash.Key,
+                        Files = hash.Select(file => file.Path)
+                    });
+
+                foreach (var hashGroup in fileGroupsWithThisSize)
+                    duplicateLists.Add(hashGroup.Hash, hashGroup.Files.ToList());
             }
         }
 
@@ -435,30 +383,6 @@ namespace DuplicateDestroyer
             }
 
             return fileList.Values.ToList();
-        }
-
-        static string CalculateHash(ref System.Security.Cryptography.MD5CryptoServiceProvider mcsp, string file)
-        {
-            string md5b64;
-
-            if (Verbose == true)
-            {
-                Console.Write("Reading file " + Path.GetFileName(file) + "...");
-            }
-
-            byte[] md5bytes;
-            using (FileStream stream = File.OpenRead(file))
-            {
-                md5bytes = mcsp.ComputeHash(stream);
-                md5b64 = Convert.ToBase64String(md5bytes);
-            }
-
-            if (Verbose == true)
-            {
-                Console.WriteLine(" Hash: " + md5b64 + ".");
-            }
-
-            return md5b64;
         }
 
         static void RemoveFile(string file)
@@ -592,6 +516,79 @@ namespace DuplicateDestroyer
             }
 
             subfolderList.Remove(directory);
+        }
+
+        static void AnalyseSizes()
+        {
+            // After the file sizes are read, we eliminate every size which refers to one file
+            // As there could not be duplicates that way.
+
+            for (long i = SizesFile.RecordCount - 1; i >= 0; --i)
+            {
+                SizeEntry rec = new SizeEntry();
+                try
+                {
+                    rec = SizesFile.GetRecordByIndex(i);
+                }
+                catch (Exception ex)
+                {
+                    //Console.ForegroundColor = ConsoleColor.Yellow;
+                    //Console.WriteLine("Couldn't get, because");
+                    //Console.ResetColor();
+                    //Console.WriteLine(ex.Message);
+
+                    continue;
+                }
+
+                if (rec.Count == 1 || rec.Count == 0)
+                {
+                    if (Verbose)
+                        Console.Write("Size " + rec.Size + " has " + rec.Count + " files assigned.");
+
+                    SizesFile.DeleteRecord(rec.Size);
+                    --SizeCount;
+                    --FileCount;
+
+                    // Delete every record (there should be 1) that is associated with this size... they'll no longer be needed.
+                    if (rec.FirstPath != -1 && rec.LastPath != -1)
+                        if (rec.FirstPath != rec.LastPath)
+                            throw new InvalidDataException("Size's count is 1, but there appears to be multiple associated files to exist.");
+                        else
+                        {
+                            PathEntry entry;
+                            PathsFile.GetRecordAt(rec.FirstPath, out entry);
+                            PathsFile.DeleteRecord(entry, rec.FirstPath);
+
+                            if (Verbose)
+                                Console.Write(" Ignored " + entry.Path);
+                        }
+
+                    if (Verbose)
+                        Console.WriteLine();
+                }
+            }
+
+            SizesFile.Stream.Flush(true);
+            PathsFile.Stream.Flush(true);
+        }
+
+        static string CalculateHash(ref MD5CryptoServiceProvider mcsp, string path)
+        {
+            if (Verbose == true)
+                Console.Write("Reading file " + path + "...");
+
+            byte[] md5bytes;
+            using (FileStream stream = File.OpenRead(path))
+                md5bytes = mcsp.ComputeHash(stream);
+
+            StringBuilder sb = new StringBuilder(32);
+            for (int i = 0; i < md5bytes.Length; ++i)
+                sb.Append(md5bytes[i].ToString("x2"));
+
+            if (Verbose == true)
+                Console.WriteLine(" Hash: " + sb.ToString() + ".");
+
+            return sb.ToString();
         }
 
         #region Stream methods

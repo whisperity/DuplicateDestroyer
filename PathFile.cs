@@ -222,6 +222,8 @@ namespace DuplicateDestroyer
             // Get the rest of the records and given them in the enumerable
             if (recordFound)
             {
+                yield return entry;
+
                 long nextPositionToRead;
                 if (traverseBackwards)
                     nextPositionToRead = entry.PrevRecord;
@@ -305,7 +307,7 @@ namespace DuplicateDestroyer
         }
 
         private const int MaxConsolidateCount = 4096;
-        public void Consolidate()
+        public long Consolidate()
         {
             // Calling this method physically eliminates the deleted records from the datafile
 
@@ -438,6 +440,8 @@ namespace DuplicateDestroyer
 
             br.Dispose();
             bw.Dispose();
+
+            return removedCount;
         }
     }
 }
