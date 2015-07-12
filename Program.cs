@@ -32,6 +32,7 @@ namespace DuplicateDestroyer
 
         static PathFile PathsFile;
         static HashFile HashesFile;
+        static FileStream FilesToRemove;
 
         static void Main(string[] args)
         {
@@ -85,6 +86,9 @@ namespace DuplicateDestroyer
             HashesFileStream.SetLength(0);
             HashesFile = new HashFile(HashesFileStream);
 
+            FilesToRemove = new FileStream(".dd_remove", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+            FilesToRemove.SetLength(0);
+
             FileRemoveException = false;
             TargetDirectory = Directory.GetCurrentDirectory();
 
@@ -110,13 +114,28 @@ namespace DuplicateDestroyer
             Console.WriteLine(SizeCount + " unique file size found for " + FileCount + " files.");
             Console.WriteLine();
 
-            //PathsFile.Consolidate(new SizeFileAligner(Program.AlignSizeFilePointers));
+            // Remove entries from the PathsFile physically which were logically removed (marked deleted) in the previous step
+            if (Verbose)
+            {
+                Console.WriteLine("Removing knowledge about files I don't need to check.");
+                Console.WriteLine("(This is an internal maintenance run to speed up further operations.)");
+            }
+            PathsFile.Consolidate(new SizeFileAligner(Program.AlignSizeFilePointers));
+            PathsFile.Stream.Flush(true);
+            if (Verbose)
+                Console.WriteLine();
 
             Console.WriteLine("Reading file contents...");
             MD5CryptoServiceProvider mcsp = new MD5CryptoServiceProvider();
 
             foreach (SizeEntry duplicated_size in SizesFile.GetRecords())
             {
+                if (Verbose)
+                {
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.WriteLine("Reading files of " + duplicated_size.Size + " size");
+                    Console.ResetColor();
+                }
                 // For each size entry, iterate the path list
                 PathEntry entry;
                 long position = duplicated_size.FirstPath;
@@ -125,11 +144,26 @@ namespace DuplicateDestroyer
                 {
                     if (PathsFile.GetRecordAt(position, out entry))
                     {
-                        string hash = CalculateHash(ref mcsp, entry.Path);
+                        string hash = String.Empty;
+                        try
+                        {
+                            hash = CalculateHash(ref mcsp, entry.Path);
+                        }
+                        catch (Exception ex)
+                        {
+                            Console.ForegroundColor = ConsoleColor.Yellow;
+                            Console.WriteLine("The file " + entry.Path + " could not be checked, because:");
+                            Console.ResetColor();
+                            Console.WriteLine(ex.Message);
+                        }
 
-                        entry.Hash = hash;
+                        if (!String.IsNullOrEmpty(hash))
+                            entry.Hash = hash;
+                        else
+                            // Mark this record "deleted" so it won't be checked for hash duplication
+                            entry.Deleted = true;
+
                         PathsFile.WriteRecordAt(entry, position);
-
                         position = entry.NextRecord; // Jump to the next record in the chain
                     }
                 }
@@ -138,21 +172,98 @@ namespace DuplicateDestroyer
             Console.WriteLine();
 
             Console.WriteLine("Searching for true duplication... ");
-            SortedList<string, List<string>> DuplicateHashesList;
-            AnalyseFilelist(out DuplicateHashesList);
-
-            Console.Write(Convert.ToString(DuplicateHashesList.Count) + " unique content");
-            int duplicate_file_amount = 0;
-            foreach (List<string> duplicates_of_a_hash in DuplicateHashesList.Values)
-            {
-                foreach (string file in duplicates_of_a_hash)
-                {
-                    duplicate_file_amount++;
-                }
-            }
-            Console.WriteLine(" duplicated across " + Convert.ToString(duplicate_file_amount) + " files.");
+            long UniqueHashCount, DuplicatedFileCount;
+            AnalyseFilelist(out UniqueHashCount, out DuplicatedFileCount);
+            HashesFile.Stream.Flush(true);
+            Console.WriteLine(UniqueHashCount + " unique content duplicated across " + DuplicatedFileCount + " files.");
             Console.WriteLine();
 
+            Console.WriteLine();
+            Console.WriteLine("Please select which files you wish to remove.");
+            long dealtWithCount = 0;
+            while (dealtWithCount < UniqueHashCount)
+            {
+                // We go through every hash entry and prompt the user to decide which file to remove
+                HashesFile.Stream.Seek(0, SeekOrigin.Begin);
+                SizeHashEntry she = new SizeHashEntry();
+                PathEntry etr = new PathEntry();
+                long pos = 0;
+
+                while (pos != -1)
+                {
+                    // Get the next duplicated hash
+                    pos = HashesFile.GetNextRecord(out she);
+                    if (pos != -1)
+                    {
+                        // Iterate the hash pointers...
+                        foreach (HashPointers ptr in she.Pointers)
+                        {
+                            if (ptr.FileEntries.Count == 0)
+                                continue;
+
+                            // Select which file the user wants to keep
+                            List<int> fileIDsToKeep;
+                            bool userDecided = SelectFileToKeep(ptr, out fileIDsToKeep);
+
+                            if (!userDecided)
+                                Console.WriteLine("Didn't make a decision. You will be asked later on.");
+                            else
+                            {
+                                ++dealtWithCount;
+
+                                if (fileIDsToKeep.Count == ptr.FileEntries.Count)
+                                    Console.WriteLine("Selected to keep all files.");
+                                else if (fileIDsToKeep.Count > 0)
+                                {
+                                    foreach (int id in fileIDsToKeep)
+                                    {
+                                        Console.Write("Selected to  ");
+                                        Console.ForegroundColor = ConsoleColor.White;
+                                        Console.Write("KEEP");
+                                        Console.ResetColor();
+                                        Console.Write("  ");
+
+                                        PathsFile.GetRecordAt(ptr.FileEntries[id - 1], out etr);
+                                        Console.WriteLine(etr.Path);
+                                    }
+
+                                    foreach (int id in Enumerable.Range(1, ptr.FileEntries.Count).Except(fileIDsToKeep))
+                                    {
+                                        Console.Write("Selected to ");
+                                        Console.ForegroundColor = ConsoleColor.Red;
+                                        Console.Write("DELETE");
+                                        Console.ResetColor();
+                                        Console.Write(" ");
+
+                                        PathsFile.GetRecordAt(ptr.FileEntries[id - 1], out etr);
+                                        Console.WriteLine(etr.Path);
+
+                                        byte[] pathLine = Encoding.UTF8.GetBytes(etr.Path + StreamWriter.Null.NewLine);
+                                        FilesToRemove.Write(pathLine, 0, pathLine.Length);
+                                    }
+                                }
+                                else if (fileIDsToKeep.Count == 0)
+                                {
+                                    Console.WriteLine("All files will be deleted:");
+
+                                    foreach(long offset in ptr.FileEntries)
+                                    {
+                                        PathsFile.GetRecordAt(offset, out etr);
+                                        Console.WriteLine(etr.Path);
+
+                                        byte[] pathLine = Encoding.UTF8.GetBytes(etr.Path + StreamWriter.Null.NewLine);
+                                        FilesToRemove.Write(pathLine, 0, pathLine.Length);
+                                    }
+                                }
+
+                                FilesToRemove.Flush();
+                            }
+                        }
+                    }
+                }
+            }
+
+            SortedList<string, List<string>> DuplicateHashesList = new SortedList<string, List<string>>();
             SortedList<string, List<string>> RemoveLists = new SortedList<string, List<string>>(DuplicateHashesList.Count);
             foreach (List<string> duplicate_hash_files in DuplicateHashesList.Values)
             {
@@ -258,6 +369,139 @@ namespace DuplicateDestroyer
             {
                 Environment.Exit(0);
             }
+        }
+
+        static bool SelectFileToKeep(HashPointers ptr, out List<int> toKeep)
+        {
+            bool selectionSuccess = false;
+            toKeep = new List<int>(Enumerable.Range(1, ptr.FileEntries.Count));
+            bool decided = false;
+            int choice = 0;
+
+            while (!selectionSuccess)
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine(new String('-', Console.WindowWidth - 1));
+                Console.WriteLine("The following " + ptr.FileEntries.Count + " files are duplicate of each other");
+                Console.ResetColor();
+                if (Verbose)
+                {
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.WriteLine("Hash: " + ptr.Hash);
+                    Console.ResetColor();
+                }
+
+                Console.Write("Files marked ");
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.Write("[ KEEP ]");
+                Console.ResetColor();
+                Console.Write(" will be kept. Files marked ");
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Write("[DELETE]");
+                Console.ResetColor();
+                Console.WriteLine(" will be deleted.");
+
+                Console.WriteLine("Please select the files you wish to keep or delete.");
+
+                // Print the file list with a choice
+                int menuId = 1;
+                PathEntry etr = new PathEntry();
+                int totalLog10ofEntries = (int)Math.Floor(Math.Log10((double)ptr.FileEntries.Count + 100)) + 1;
+                if (totalLog10ofEntries < 3) // Make sure "-1." can be printed
+                    totalLog10ofEntries = 3;
+                foreach (long offset in ptr.FileEntries)
+                {
+                    PathsFile.GetRecordAt(offset, out etr);
+
+                    // Create a little menu for the user to give a choice
+                    
+                    // The length of the choice option printed, how many characters it takes in base 10
+                    int strCurrentLength = (int)Math.Floor(Math.Log10((double)menuId)) + 1; // 0-9: 1 long, 10-99: 2 long, etc.
+                    ++strCurrentLength; // The '.' (dot) takes up another character
+
+                    if (toKeep.Contains(menuId))
+                    {
+                        Console.ForegroundColor = ConsoleColor.White;
+                        Console.Write("[ KEEP ] ");
+                        Console.ResetColor();
+                    }
+                    else
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.Write("[DELETE] ");
+                        Console.ResetColor();
+                    }
+
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.Write(new String(' ', totalLog10ofEntries - strCurrentLength + 1) + menuId + ". ");
+                    Console.ResetColor();
+                    Console.WriteLine(etr.Path);
+
+                    ++menuId;
+                }
+
+                Console.ForegroundColor = ConsoleColor.Magenta;
+                Console.Write("  [DONE] " + new String(' ', totalLog10ofEntries - 2 + 1) + "0. ");
+                Console.ResetColor();
+                Console.WriteLine("Finalise the choices");
+                
+                Console.ForegroundColor = ConsoleColor.Green;
+                Console.Write("  [SKIP] " + new String(' ', totalLog10ofEntries - 3 + 1) + "-1. ");
+                Console.ResetColor();
+                Console.WriteLine("Keep everything for now, decide later");
+
+                Console.ForegroundColor = ConsoleColor.DarkRed;
+                Console.Write("  [NUKE] " + new String(' ', totalLog10ofEntries - 3 + 1) + "-2. ");
+                Console.Write("Delete ALL FILES!");
+                Console.ResetColor();
+                Console.WriteLine();
+
+                // Read the user's choice
+                Console.WriteLine("Please select an option from above. If you select a file, its status will be togged between keep and delete.");
+                Console.Write("? ");
+                try
+                {
+                    choice = Convert.ToInt32(Console.ReadLine());
+                    selectionSuccess = true; // Attempt to say that the user successfully selected
+
+                    if (choice >= menuId || choice < -2)
+                        throw new ArgumentOutOfRangeException("The entered choice is invalid.");
+                }
+                catch (Exception)
+                {
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.Write("Invalid input. ");
+                    Console.ResetColor();
+                    Console.WriteLine("The enterd input is not a number or is out of range. Please select from the presented choices!");
+
+                    selectionSuccess = false;
+                }
+
+                if (selectionSuccess)
+                {
+                    // Change the buffer list of which files to keep or don't
+                    if (choice >= 1)
+                    {
+                        if (toKeep.Contains(choice))
+                            toKeep.Remove(choice);
+                        else
+                            toKeep.Add(choice);
+
+                        selectionSuccess = false; // Let the user make further changes
+                        decided = false;
+                    }
+                    else if (choice == -2)
+                    {
+                        toKeep.Clear();
+                        decided = true;
+                    }
+                    else
+                        decided = (choice == 0); // If -1, tell that the user hasn't decided
+                }
+            }
+
+            toKeep.Sort();
+            return decided;
         }
 
         static List<string> SelectFileToKeep(string hash, SortedList<DateTime, string> fileList)
@@ -383,7 +627,11 @@ namespace DuplicateDestroyer
         static void ReadFileSizes(string directory, ref List<string> subfolderList)
         {
             if (Verbose)
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.WriteLine("Reading contents of " + directory);
+                Console.ResetColor();
+            }
             
             try
             {
@@ -394,7 +642,7 @@ namespace DuplicateDestroyer
 
                     // Skip some files which should not be access by the program
                     if (Path.GetFullPath(path) == SizesFile.Stream.Name || Path.GetFullPath(path) == PathsFile.Stream.Name
-                        || Path.GetFullPath(path) == HashesFile.Stream.Name)
+                        || Path.GetFullPath(path) == HashesFile.Stream.Name || Path.GetFullPath(path) == FilesToRemove.Name)
                         continue;
 
                     try
@@ -456,7 +704,7 @@ namespace DuplicateDestroyer
                                 SizesFile.WriteRecord(entry);
 
                                 if (Verbose)
-                                    Console.WriteLine(" Size: " + fi.Length.ToString() + " bytes.");
+                                    Console.WriteLine(" Size: " + fi.Length.HumanReadableSize() + " bytes.");
 
                                 ++FileCount;
 
@@ -537,7 +785,10 @@ namespace DuplicateDestroyer
                 if (rec.Count == 1 || rec.Count == 0)
                 {
                     if (Verbose)
-                        Console.Write("Size " + rec.Size + " has " + rec.Count + " files assigned.");
+                        if (rec.Count == 0)
+                            Console.Write("No files with " + rec.Size.HumanReadableSize() + " size.");
+                        else if (rec.Count == 1)
+                            Console.Write("There's only 1 file with " + rec.Size.HumanReadableSize() + " size.");
 
                     SizesFile.DeleteRecord(rec.Size);
                     --SizeCount;
@@ -546,7 +797,18 @@ namespace DuplicateDestroyer
                     // Delete every record (there should be 1) that is associated with this size... they'll no longer be needed.
                     if (rec.FirstPath != -1 && rec.LastPath != -1)
                         if (rec.FirstPath != rec.LastPath)
-                            throw new InvalidDataException("Size's count is 1, but there appears to be multiple associated files to exist.");
+                        {
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            Console.WriteLine("An error happened while analysing sizes:");
+                            Console.ResetColor();
+                            Console.WriteLine("Count for size " + rec.Size.HumanReadableSize() + " is 1, but there appears to be multiple associated files to exist.");
+
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            Console.WriteLine("This indicates an error with the databank. Execution cannot continue.");
+                            Console.ResetColor();
+                            Console.ReadLine();
+                            Environment.Exit(1);
+                        }
                         else
                         {
                             PathEntry entry;
@@ -554,7 +816,7 @@ namespace DuplicateDestroyer
                             PathsFile.DeleteRecord(entry, rec.FirstPath);
 
                             if (Verbose)
-                                Console.Write(" Ignored " + entry.Path);
+                                Console.Write(" Ignoring " + entry.Path);
                         }
 
                     if (Verbose)
@@ -572,7 +834,7 @@ namespace DuplicateDestroyer
                 Console.Write("Reading file " + path + "...");
 
             byte[] md5bytes;
-            using (FileStream stream = File.OpenRead(path))
+            using (FileStream stream = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.None))
                 md5bytes = mcsp.ComputeHash(stream);
 
             StringBuilder sb = new StringBuilder(32);
@@ -585,10 +847,11 @@ namespace DuplicateDestroyer
             return sb.ToString();
         }
 
-        static void AnalyseFilelist(out SortedList<string, List<string>> duplicateLists)
+        static void AnalyseFilelist(out long UniqueHashCount, out long DuplicatedFileCount)
         {
             // Go through every size entry and build the hash lists
-            duplicateLists = new SortedList<string, List<string>>();
+            UniqueHashCount = 0;
+            DuplicatedFileCount = 0;
 
             for (long i = 0; i < SizesFile.RecordCount; ++i)
             {
@@ -607,38 +870,43 @@ namespace DuplicateDestroyer
                     if (!PathsFile.GetRecordAt(pos, out entry))
                         break;
 
-                    // Get the file pointer list for the current hash
-                    HashPointers curHash = she.Pointers.Where(p => p.Hash  == entry.Hash).FirstOrDefault();
-                    if (curHash.FileEntries == null)
+                    if (!entry.Deleted)
                     {
-                        // This indicates that this is a new hash, allocate the List for it to prevent a null reference
-                        curHash.Hash = entry.Hash;
-                        curHash.FileEntries = new List<long>();
+                        // Get the file pointer list for the current hash
+                        HashPointers curHash = she.Pointers.Where(p => p.Hash == entry.Hash).FirstOrDefault();
+                        if (curHash.FileEntries == null)
+                        {
+                            // This indicates that this is a new hash, allocate the List for it to prevent a null reference
+                            curHash.Hash = entry.Hash;
+                            curHash.FileEntries = new List<long>();
 
-                        she.Pointers.Add(curHash);
-
-                        List<string> fList = new List<string>();
-                        duplicateLists.Add(entry.Hash, fList);
+                            she.Pointers.Add(curHash);
+                            ++UniqueHashCount;
+                        }
+                        curHash.FileEntries.Add(pos); // A file with this hash is found at this position
+                        ++DuplicatedFileCount;
                     }
-                    curHash.FileEntries.Add(pos); // A file with this hash is found at this position
-                    duplicateLists[entry.Hash].Add(entry.Path);
+                    else
+                        if (Verbose)
+                            Console.WriteLine("Skipping file " + entry.Path + ", I was unable to check it.");
 
                     pos = entry.NextRecord;
                 }
 
                 // Remove hashes which is had by only one file
-                she.Pointers.RemoveAll(hp => hp.FileEntries.Count == 1);
-                List<string> hashesToRemove = duplicateLists.Where(dl => dl.Value.Count == 1).Select(dl => dl.Key).ToList();
-                foreach (string hash in hashesToRemove)
-                    duplicateLists.Remove(hash);
-
+                int hashesRemoved = she.Pointers.RemoveAll(hp => hp.FileEntries.Count == 1);
+                UniqueHashCount -= hashesRemoved;
+                DuplicatedFileCount -= hashesRemoved;
 
                 // Write the current hash's data to the datafile
-                long shePosition = HashesFile.WriteRecord(she);
+                if (she.Pointers.Count > 0)
+                {
+                    long shePosition = HashesFile.WriteRecord(she);
 
-                // Update the size table to save where the hash map begins
-                se.HashEntry = shePosition;
-                SizesFile.WriteRecordAt(se, i * SizeEntry.RecordSize);
+                    // Update the size table to save where the hash map begins
+                    se.HashEntry = shePosition;
+                    SizesFile.WriteRecordAt(se, i * SizeEntry.RecordSize);
+                }
             }
         }
 
@@ -772,6 +1040,7 @@ namespace DuplicateDestroyer
         }
         #endregion
 
+        #region Helper functions
         // Helper function to align the pointers in a SizeFile data if a PathFile Consolidate() is happening
         internal delegate void SizeFileAligner(ref List<KeyValuePair<long, long>> moveOffsets);
         private static void AlignSizeFilePointers(ref List<KeyValuePair<long, long>> moveOffsets)
@@ -814,5 +1083,29 @@ namespace DuplicateDestroyer
                 }
             }
         }
+
+        // Return a human-readable size for a value
+        static string[] suffices = new string[] { "B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB" };
+        public static string HumanReadableSize(this long size)
+        {
+            if (size == 0)
+                return string.Format("{0}{1:0.#} {2}", null, 0, suffices[0]);
+
+            double absSize = Math.Abs(size);
+            double power = Math.Log(absSize, 1024);
+            int unit = (int)power >= suffices.Length
+                ? suffices.Length - 1
+                : (int)power;
+            double normSize = absSize / Math.Pow(1024, unit);
+
+            return string.Format(
+                "{0}{1:0.#} {2}",
+                size < 0 ? "-" : null, normSize, suffices[unit]);
+        }
+        public static string HumanReadableSize(this ulong size)
+        {
+            return ((long)size).HumanReadableSize();
+        }
+        #endregion
     }
 }
