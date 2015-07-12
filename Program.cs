@@ -99,7 +99,6 @@ namespace DuplicateDestroyer
             {
                 // Read the files in the subfolders.
                 ReadFileSizes(Subfolders[0], ref Subfolders);
-
                 // The on-the-fly detected subfolders are added to the list while reading.
             }
             SizesFile.Stream.Flush(true);
@@ -203,7 +202,7 @@ namespace DuplicateDestroyer
 
                             // Select which file the user wants to keep
                             List<int> fileIDsToKeep;
-                            bool userDecided = SelectFileToKeep(ptr, out fileIDsToKeep);
+                            bool userDecided = SelectFilesToKeep(ptr, out fileIDsToKeep);
 
                             if (!userDecided)
                                 Console.WriteLine("Didn't make a decision. You will be asked later on.");
@@ -215,31 +214,34 @@ namespace DuplicateDestroyer
                                     Console.WriteLine("Selected to keep all files.");
                                 else if (fileIDsToKeep.Count > 0)
                                 {
-                                    foreach (int id in fileIDsToKeep)
+                                    if (!AutoOldest && !AutoOldest)
                                     {
-                                        Console.Write("Selected to  ");
-                                        Console.ForegroundColor = ConsoleColor.White;
-                                        Console.Write("KEEP");
-                                        Console.ResetColor();
-                                        Console.Write("  ");
+                                        foreach (int id in fileIDsToKeep)
+                                        {
+                                            Console.Write("Selected to  ");
+                                            Console.ForegroundColor = ConsoleColor.White;
+                                            Console.Write("KEEP");
+                                            Console.ResetColor();
+                                            Console.Write("  ");
 
-                                        PathsFile.GetRecordAt(ptr.FileEntries[id - 1], out etr);
-                                        Console.WriteLine(etr.Path);
-                                    }
+                                            PathsFile.GetRecordAt(ptr.FileEntries[id - 1], out etr);
+                                            Console.WriteLine(etr.Path);
+                                        }
 
-                                    foreach (int id in Enumerable.Range(1, ptr.FileEntries.Count).Except(fileIDsToKeep))
-                                    {
-                                        Console.Write("Selected to ");
-                                        Console.ForegroundColor = ConsoleColor.Red;
-                                        Console.Write("DELETE");
-                                        Console.ResetColor();
-                                        Console.Write(" ");
+                                        foreach (int id in Enumerable.Range(1, ptr.FileEntries.Count).Except(fileIDsToKeep))
+                                        {
+                                            Console.Write("Selected to ");
+                                            Console.ForegroundColor = ConsoleColor.Red;
+                                            Console.Write("DELETE");
+                                            Console.ResetColor();
+                                            Console.Write(" ");
 
-                                        PathsFile.GetRecordAt(ptr.FileEntries[id - 1], out etr);
-                                        Console.WriteLine(etr.Path);
+                                            PathsFile.GetRecordAt(ptr.FileEntries[id - 1], out etr);
+                                            Console.WriteLine(etr.Path);
 
-                                        byte[] pathLine = Encoding.UTF8.GetBytes(etr.Path + StreamWriter.Null.NewLine);
-                                        FilesToRemove.Write(pathLine, 0, pathLine.Length);
+                                            byte[] pathLine = Encoding.UTF8.GetBytes(etr.Path + StreamWriter.Null.NewLine);
+                                            FilesToRemove.Write(pathLine, 0, pathLine.Length);
+                                        }
                                     }
                                 }
                                 else if (fileIDsToKeep.Count == 0)
@@ -263,98 +265,6 @@ namespace DuplicateDestroyer
                 }
             }
 
-            SortedList<string, List<string>> DuplicateHashesList = new SortedList<string, List<string>>();
-            SortedList<string, List<string>> RemoveLists = new SortedList<string, List<string>>(DuplicateHashesList.Count);
-            foreach (List<string> duplicate_hash_files in DuplicateHashesList.Values)
-            {
-                SortedList<DateTime, string> ordered = new SortedList<DateTime, string>(duplicate_hash_files.Count);
-
-                foreach (string file in duplicate_hash_files)
-                {
-                    FileInfo fi = new FileInfo(file);
-                    DateTime lastAccessTime = fi.LastAccessTime;
-
-                    // Well this is a hack.
-                    // Whatever. It will just stop throwing those
-                    // System.ArgumentException: An entry with the same key already exists.
-                    while (ordered.ContainsKey(lastAccessTime))
-                    {
-                        lastAccessTime = lastAccessTime.AddMilliseconds(1);
-                    }
-
-                    ordered.Add(lastAccessTime, file);
-                }
-
-                List<string> files_to_remove = null;
-
-                if (AutoOldest == true && AutoNewest == false)
-                {
-                    files_to_remove = ordered.Values.ToList();
-
-                    Console.Write("Automatically scheduled to keep OLDEST file: ");
-
-                    if (Verbose == true)
-                    {
-                        Console.WriteLine(files_to_remove[0]);
-                    }
-                    else if (Verbose == false)
-                    {
-                        Console.WriteLine(Path.GetFileName(files_to_remove[0]));
-                    }
-
-                    files_to_remove.RemoveAt(0);
-                }
-                else if (AutoOldest == false && AutoNewest == true)
-                {
-                    files_to_remove = ordered.Values.ToList();
-
-                    Console.Write("Automatically scheduled to keep NEWEST file: ");
-
-                    if (Verbose == true)
-                    {
-                        Console.WriteLine(files_to_remove[files_to_remove.Count - 1]);
-                    }
-                    else if (Verbose == false)
-                    {
-                        Console.WriteLine(Path.GetFileName(files_to_remove[files_to_remove.Count - 1]));
-                    }
-
-                    files_to_remove.RemoveAt(files_to_remove.Count - 1);
-                }
-                else if (AutoOldest == false && AutoNewest == false)
-                {
-                    files_to_remove = SelectFileToKeep(
-                        DuplicateHashesList.Keys[DuplicateHashesList.IndexOfValue(duplicate_hash_files)], ordered);
-                }
-
-                if (files_to_remove.Count != 0)
-                {
-                    RemoveLists.Add(DuplicateHashesList.Keys[DuplicateHashesList.IndexOfValue(duplicate_hash_files)], files_to_remove);
-                }
-            }
-            Console.WriteLine();
-
-            if (DryRun == false)
-            {
-                foreach (List<string> removes in RemoveLists.Values)
-                {
-                    if (Verbose == true)
-                    {
-                        Console.WriteLine("Removing duplicates of hash: " + RemoveLists.Keys[RemoveLists.IndexOfValue(removes)]);
-                    }
-
-                    foreach (string file in removes)
-                    {
-                        RemoveFile(file);
-                    }
-
-                    if (Verbose == true)
-                    {
-                        Console.WriteLine();
-                    }
-                }
-            }
-
             SizesFileStream.Dispose();
             PathsFileStream.Dispose();
 
@@ -371,238 +281,6 @@ namespace DuplicateDestroyer
             }
         }
 
-        static bool SelectFileToKeep(HashPointers ptr, out List<int> toKeep)
-        {
-            bool selectionSuccess = false;
-            toKeep = new List<int>(Enumerable.Range(1, ptr.FileEntries.Count));
-            bool decided = false;
-            int choice = 0;
-
-            while (!selectionSuccess)
-            {
-                Console.ForegroundColor = ConsoleColor.Cyan;
-                Console.WriteLine(new String('-', Console.WindowWidth - 1));
-                Console.WriteLine("The following " + ptr.FileEntries.Count + " files are duplicate of each other");
-                Console.ResetColor();
-                if (Verbose)
-                {
-                    Console.ForegroundColor = ConsoleColor.Cyan;
-                    Console.WriteLine("Hash: " + ptr.Hash);
-                    Console.ResetColor();
-                }
-
-                Console.Write("Files marked ");
-                Console.ForegroundColor = ConsoleColor.White;
-                Console.Write("[ KEEP ]");
-                Console.ResetColor();
-                Console.Write(" will be kept. Files marked ");
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.Write("[DELETE]");
-                Console.ResetColor();
-                Console.WriteLine(" will be deleted.");
-
-                Console.WriteLine("Please select the files you wish to keep or delete.");
-
-                // Print the file list with a choice
-                int menuId = 1;
-                PathEntry etr = new PathEntry();
-                int totalLog10ofEntries = (int)Math.Floor(Math.Log10((double)ptr.FileEntries.Count + 100)) + 1;
-                if (totalLog10ofEntries < 3) // Make sure "-1." can be printed
-                    totalLog10ofEntries = 3;
-                foreach (long offset in ptr.FileEntries)
-                {
-                    PathsFile.GetRecordAt(offset, out etr);
-
-                    // Create a little menu for the user to give a choice
-                    
-                    // The length of the choice option printed, how many characters it takes in base 10
-                    int strCurrentLength = (int)Math.Floor(Math.Log10((double)menuId)) + 1; // 0-9: 1 long, 10-99: 2 long, etc.
-                    ++strCurrentLength; // The '.' (dot) takes up another character
-
-                    if (toKeep.Contains(menuId))
-                    {
-                        Console.ForegroundColor = ConsoleColor.White;
-                        Console.Write("[ KEEP ] ");
-                        Console.ResetColor();
-                    }
-                    else
-                    {
-                        Console.ForegroundColor = ConsoleColor.Red;
-                        Console.Write("[DELETE] ");
-                        Console.ResetColor();
-                    }
-
-                    Console.ForegroundColor = ConsoleColor.Cyan;
-                    Console.Write(new String(' ', totalLog10ofEntries - strCurrentLength + 1) + menuId + ". ");
-                    Console.ResetColor();
-                    Console.WriteLine(etr.Path);
-
-                    ++menuId;
-                }
-
-                Console.ForegroundColor = ConsoleColor.Magenta;
-                Console.Write("  [DONE] " + new String(' ', totalLog10ofEntries - 2 + 1) + "0. ");
-                Console.ResetColor();
-                Console.WriteLine("Finalise the choices");
-                
-                Console.ForegroundColor = ConsoleColor.Green;
-                Console.Write("  [SKIP] " + new String(' ', totalLog10ofEntries - 3 + 1) + "-1. ");
-                Console.ResetColor();
-                Console.WriteLine("Keep everything for now, decide later");
-
-                Console.ForegroundColor = ConsoleColor.DarkRed;
-                Console.Write("  [NUKE] " + new String(' ', totalLog10ofEntries - 3 + 1) + "-2. ");
-                Console.Write("Delete ALL FILES!");
-                Console.ResetColor();
-                Console.WriteLine();
-
-                // Read the user's choice
-                Console.WriteLine("Please select an option from above. If you select a file, its status will be togged between keep and delete.");
-                Console.Write("? ");
-                try
-                {
-                    choice = Convert.ToInt32(Console.ReadLine());
-                    selectionSuccess = true; // Attempt to say that the user successfully selected
-
-                    if (choice >= menuId || choice < -2)
-                        throw new ArgumentOutOfRangeException("The entered choice is invalid.");
-                }
-                catch (Exception)
-                {
-                    Console.ForegroundColor = ConsoleColor.Red;
-                    Console.Write("Invalid input. ");
-                    Console.ResetColor();
-                    Console.WriteLine("The enterd input is not a number or is out of range. Please select from the presented choices!");
-
-                    selectionSuccess = false;
-                }
-
-                if (selectionSuccess)
-                {
-                    // Change the buffer list of which files to keep or don't
-                    if (choice >= 1)
-                    {
-                        if (toKeep.Contains(choice))
-                            toKeep.Remove(choice);
-                        else
-                            toKeep.Add(choice);
-
-                        selectionSuccess = false; // Let the user make further changes
-                        decided = false;
-                    }
-                    else if (choice == -2)
-                    {
-                        toKeep.Clear();
-                        decided = true;
-                    }
-                    else
-                        decided = (choice == 0); // If -1, tell that the user hasn't decided
-                }
-            }
-
-            toKeep.Sort();
-            return decided;
-        }
-
-        static List<string> SelectFileToKeep(string hash, SortedList<DateTime, string> fileList)
-        {
-            bool selection_success = false;
-            uint choice = 0;
-
-            while (!selection_success)
-            {
-                Console.WriteLine("=================================");
-                Console.WriteLine("The following files are duplicates of each other: ");
-
-                if (Verbose == true)
-                {
-                    Console.WriteLine("(Hash: " + hash + ")");
-                }
-
-                foreach (KeyValuePair<DateTime, string> duplicate in fileList)
-                {
-                    Console.Write((fileList.IndexOfValue(duplicate.Value) + 1) + ". ");
-
-                    if (Verbose == true)
-                    {
-                        Console.WriteLine(duplicate.Value);
-                    }
-                    else if (Verbose == false)
-                    {
-                        Console.WriteLine(Path.GetFileName(duplicate.Value));
-                    }
-
-                    Console.Write("Last modified: " +
-                        duplicate.Key.ToString(System.Globalization.CultureInfo.CurrentCulture.DateTimeFormat));
-
-                    if (fileList.IndexOfValue(duplicate.Value) == 0)
-                    {
-                        Console.Write(" (oldest)");
-                    }
-
-                    if (fileList.IndexOfValue(duplicate.Value) == fileList.Count - 1)
-                    {
-                        Console.Write(" (newest)");
-                    }
-
-                    Console.WriteLine();
-                }
-
-                if (DryRun == false)
-                {
-                    Console.WriteLine((fileList.Count + 1) + ". Take no action");
-
-                    try
-                    {
-                        Console.Write("Select the file you want TO KEEP. (The rest will be deleted.): ");
-                        choice = Convert.ToUInt32(Console.ReadLine());
-
-                        selection_success = true;
-
-                        if (choice < 1 || choice > fileList.Count + 1)
-                        {
-                            throw new Exception("You entered an invalid option. Please choose an option printed on the menu.");
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.WriteLine("Unable to parse choice. An exception happened: " + ex.Message);
-                        selection_success = false;
-                    }
-                }
-                else if (DryRun == true)
-                {
-                    selection_success = true;
-                    choice = 0;
-                }
-            }
-
-            if (DryRun == false)
-            {
-                if (choice != fileList.Count + 1 && choice != 0)
-                {
-                    Console.Write("Scheduled to keep file: ");
-
-                    if (Verbose == true)
-                    {
-                        Console.WriteLine(fileList.Values[(int)choice - 1]);
-                    }
-                    else if (Verbose == false)
-                    {
-                        Console.WriteLine(Path.GetFileName(fileList.Values[(int)choice - 1]));
-                    }
-
-                    fileList.RemoveAt((int)choice - 1);
-                }
-                else if (choice == fileList.Count + 1 || choice == 0)
-                {
-                    Console.WriteLine("All files will be kept.");
-                    fileList.Clear();
-                }
-            }
-
-            return fileList.Values.ToList();
-        }
 
         static void RemoveFile(string file)
         {
@@ -910,6 +588,220 @@ namespace DuplicateDestroyer
             }
         }
 
+        static bool SelectFilesToKeep(HashPointers ptr, out List<int> toKeep)
+        {
+            bool selectionSuccess = false;
+            toKeep = new List<int>(Enumerable.Range(1, ptr.FileEntries.Count));
+            bool decided = false;
+            int choice = 0;
+
+            bool canAutoSelect = false;
+            List<int> oldestIDs = new List<int>();
+            List<int> newestIDs = new List<int>();
+            {
+                // Read and register the timestamp when the files were last accessed
+                // The oldest file (lowest timestamp) will be on the top of the list
+                SortedList<DateTime, List<int>> timeStamps = new SortedList<DateTime, List<int>>(ptr.FileEntries.Count);
+                PathEntry entry = new PathEntry();
+                int currentID = 1;
+                foreach (long offset in ptr.FileEntries)
+                {
+                    PathsFile.GetRecordAt(offset, out entry);
+                    FileInfo fi = new FileInfo(entry.Path);
+
+                    IEnumerable<DateTime> tsRegistered = timeStamps.Select(ts => ts.Key)
+                        .Where(ts => ts.Date == fi.LastAccessTime.Date
+                            && ts.Hour == fi.LastAccessTime.Hour
+                            && ts.Minute == fi.LastAccessTime.Minute
+                            && ts.Second == fi.LastAccessTime.Second);
+                    if (tsRegistered.Count() == 1)
+                        timeStamps[tsRegistered.First()].Add(currentID);
+                    else
+                    {
+                        List<int> idList = new List<int>(1);
+                        idList.Add(currentID);
+                        timeStamps.Add(fi.LastAccessTime, idList);
+                    }
+                    ++currentID;
+                }
+
+                // If the oldest and newest files are the same, don't select any of them
+                if (timeStamps.Count == 1 && (AutoOldest || AutoNewest))
+                    Console.WriteLine("The files' age are equal. Unable to select oldest and newest ones.");
+                else
+                {
+                    oldestIDs.AddRange(timeStamps.First().Value);
+                    newestIDs.AddRange(timeStamps.Last().Value);
+                    canAutoSelect = true;
+                }
+            }
+
+            while (!selectionSuccess)
+            {
+                Console.ForegroundColor = ConsoleColor.Cyan;
+                Console.WriteLine(new String('-', Console.WindowWidth - 1));
+                Console.WriteLine("The following " + ptr.FileEntries.Count + " files are duplicate of each other");
+                Console.ResetColor();
+                if (Verbose)
+                {
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.WriteLine("Hash: " + ptr.Hash);
+                    Console.ResetColor();
+                }
+
+                Console.Write("Files marked ");
+                Console.ForegroundColor = ConsoleColor.White;
+                Console.Write("[ KEEP ]");
+                Console.ResetColor();
+                Console.Write(" will be kept. Files marked ");
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.Write("[DELETE]");
+                Console.ResetColor();
+                Console.WriteLine(" will be deleted.");
+
+                if (!AutoNewest && !AutoOldest)
+                    Console.WriteLine("Please select the files you wish to keep or delete.");
+                else
+                    if (!canAutoSelect)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Yellow;
+                        Console.WriteLine("Was unable to automatically select " + (AutoOldest ? "oldest" : "newest") + " file to keep");
+                        Console.ResetColor();
+                    }
+                    else
+                    {
+                        Console.WriteLine("Automatically selecting the " + (AutoOldest ? "OLDEST" : "NEWEST") + " file to keep");
+                        toKeep.Clear();
+
+                        if (AutoOldest)
+                            toKeep.AddRange(oldestIDs);
+                        else if (AutoNewest)
+                            toKeep.AddRange(newestIDs);
+                    }
+
+                // Print the file list with a choice
+                int menuId = 1;
+                PathEntry etr = new PathEntry();
+                int totalLog10ofEntries = (int)Math.Floor(Math.Log10((double)ptr.FileEntries.Count + 100)) + 1;
+                if (totalLog10ofEntries < 3) // Make sure "-1." can be printed
+                    totalLog10ofEntries = 3;
+                foreach (long offset in ptr.FileEntries)
+                {
+                    PathsFile.GetRecordAt(offset, out etr);
+
+                    // Create a little menu for the user to give a choice
+
+                    // The length of the choice option printed, how many characters it takes in base 10
+                    int strCurrentLength = (int)Math.Floor(Math.Log10((double)menuId)) + 1; // 0-9: 1 long, 10-99: 2 long, etc.
+                    ++strCurrentLength; // The '.' (dot) takes up another character
+
+                    if (toKeep.Contains(menuId))
+                    {
+                        Console.ForegroundColor = ConsoleColor.White;
+                        Console.Write("[ KEEP ] ");
+                        Console.ResetColor();
+                    }
+                    else
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.Write("[DELETE] ");
+                        Console.ResetColor();
+                    }
+
+                    Console.ForegroundColor = ConsoleColor.Cyan;
+                    Console.Write(new String(' ', totalLog10ofEntries - strCurrentLength + 1) + menuId + ". ");
+                    
+                    if (oldestIDs.Contains(menuId))
+                    {
+                        Console.ForegroundColor = ConsoleColor.White;
+                        Console.Write(" [OLDEST] ");
+                    }
+                    else if (newestIDs.Contains(menuId))
+                    {
+                        Console.ForegroundColor = ConsoleColor.White;
+                        Console.Write(" [NEWEST] ");
+                    }
+
+                    Console.ResetColor();
+                    Console.WriteLine(etr.Path);
+
+                    ++menuId;
+                }
+
+                if (!AutoNewest && !AutoOldest)
+                {
+                    Console.ForegroundColor = ConsoleColor.Magenta;
+                    Console.Write("  [DONE] " + new String(' ', totalLog10ofEntries - 2 + 1) + "0. ");
+                    Console.ResetColor();
+                    Console.WriteLine("Finalise the choices");
+
+                    Console.ForegroundColor = ConsoleColor.Green;
+                    Console.Write("  [SKIP] " + new String(' ', totalLog10ofEntries - 3 + 1) + "-1. ");
+                    Console.ResetColor();
+                    Console.WriteLine("Keep everything for now, decide later");
+
+                    Console.ForegroundColor = ConsoleColor.DarkRed;
+                    Console.Write("  [NUKE] " + new String(' ', totalLog10ofEntries - 3 + 1) + "-2. ");
+                    Console.Write("Delete ALL FILES!");
+                    Console.ResetColor();
+                    Console.WriteLine();
+                }
+
+                // Read the user's choice
+                if (!AutoNewest && !AutoOldest)
+                {
+                    Console.WriteLine("Please select an option from above. If you select a file, its status will be togged between keep and delete.");
+                    Console.Write("? ");
+                    try
+                    {
+                        choice = Convert.ToInt32(Console.ReadLine());
+                        selectionSuccess = true; // Attempt to say that the user successfully selected
+
+                        if (choice >= menuId || choice < -2)
+                            throw new ArgumentOutOfRangeException("The entered choice is invalid.");
+                    }
+                    catch (Exception)
+                    {
+                        Console.ForegroundColor = ConsoleColor.Red;
+                        Console.Write("Invalid input. ");
+                        Console.ResetColor();
+                        Console.WriteLine("The enterd input is not a number or is out of range. Please select from the presented choices!");
+
+                        selectionSuccess = false;
+                    }
+                }
+                else
+                    // If the user decided to automatically keep oldest or newest file, the selection was successful.
+                    // Either the oldest or the newest file were selected, or if not, all files were selected to be kept.
+                    selectionSuccess = true;
+
+                if (selectionSuccess)
+                {
+                    // Change the buffer list of which files to keep or don't
+                    if (choice >= 1)
+                    {
+                        if (toKeep.Contains(choice))
+                            toKeep.Remove(choice);
+                        else
+                            toKeep.Add(choice);
+
+                        selectionSuccess = false; // Let the user make further changes
+                        decided = false;
+                    }
+                    else if (choice == -2)
+                    {
+                        toKeep.Clear();
+                        decided = true;
+                    }
+                    else
+                        decided = (choice == 0); // If -1, tell that the user hasn't decided
+                }
+            }
+
+            toKeep.Sort();
+            return decided;
+        }
+
         #region Stream methods
         private const int MaxBufferSize = 2 << 12; // 2^13 = 8192, 8 KiB
 
@@ -952,7 +844,7 @@ namespace DuplicateDestroyer
             if (fullByteCount > MaxBufferSize)
                 bufferSize = MaxBufferSize;
             else
-                bufferSize = (int)Math.Pow(2, Math.Ceiling(Math.Log(fullByteCount, 2)));
+                bufferSize = (int)Math.Pow(2, Math.Floor(Math.Log(fullByteCount, 2)));
             byte[] buffer = new byte[bufferSize];
 
             long byteCount = 0; // The count of "done" bytes we already moved

@@ -21,7 +21,6 @@ namespace DuplicateDestroyer
     class SizeFile
     {
         internal FileStream Stream;
-        private long FirstPosition;
         private long LastPosition;
 
         internal long RecordCount { get { return LastPosition / SizeEntry.RecordSize; } }
@@ -29,7 +28,6 @@ namespace DuplicateDestroyer
         public SizeFile(FileStream stream)
         {
             this.Stream = stream;
-            this.FirstPosition = 0;
             this.LastPosition = 0;
 
             this.Stream.Seek(0, SeekOrigin.Begin);
