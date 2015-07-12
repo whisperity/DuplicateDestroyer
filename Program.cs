@@ -33,6 +33,7 @@ namespace DuplicateDestroyer
         static PathFile PathsFile;
         static HashFile HashesFile;
         static FileStream FilesToRemove;
+        static StreamWriter DuplicateFileLog;
 
         static void Main(string[] args)
         {
@@ -88,6 +89,11 @@ namespace DuplicateDestroyer
 
             FilesToRemove = new FileStream(".dd_remove", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
             FilesToRemove.SetLength(0);
+
+            FileStream DuplicateFileStream = new FileStream("duplicates_" + DateTime.Now.ToString().Replace(":", "_") + ".log", FileMode.OpenOrCreate,
+                FileAccess.Write, FileShare.None);
+            DuplicateFileStream.SetLength(0);
+            DuplicateFileLog = new StreamWriter(DuplicateFileStream);
 
             FileRemoveException = false;
             TargetDirectory = Directory.GetCurrentDirectory();
@@ -204,98 +210,116 @@ namespace DuplicateDestroyer
                             List<int> fileIDsToKeep;
                             bool userDecided = SelectFilesToKeep(ptr, out fileIDsToKeep);
 
-                            if (!userDecided)
-                                Console.WriteLine("Didn't make a decision. You will be asked later on.");
-                            else
+                            if (!DryRun)
                             {
-                                ++dealtWithCount;
-
-                                if (fileIDsToKeep.Count == ptr.FileEntries.Count)
-                                    Console.WriteLine("Selected to keep all files.");
-                                else if (fileIDsToKeep.Count > 0)
+                                if (!userDecided)
+                                    Console.WriteLine("Didn't make a decision. You will be asked later on.");
+                                else
                                 {
-                                    if (!AutoOldest && !AutoOldest)
+                                    ++dealtWithCount;
+
+                                    if (fileIDsToKeep.Count == ptr.FileEntries.Count)
+                                        Console.WriteLine("Selected to keep all files.");
+                                    else if (fileIDsToKeep.Count > 0)
                                     {
-                                        foreach (int id in fileIDsToKeep)
+                                        if (!AutoOldest && !AutoOldest)
                                         {
-                                            Console.Write("Selected to  ");
-                                            Console.ForegroundColor = ConsoleColor.White;
-                                            Console.Write("KEEP");
-                                            Console.ResetColor();
-                                            Console.Write("  ");
+                                            foreach (int id in fileIDsToKeep)
+                                            {
+                                                Console.Write("Selected to  ");
+                                                Console.ForegroundColor = ConsoleColor.White;
+                                                Console.Write("KEEP");
+                                                Console.ResetColor();
+                                                Console.Write("  ");
 
-                                            PathsFile.GetRecordAt(ptr.FileEntries[id - 1], out etr);
-                                            Console.WriteLine(etr.Path);
+                                                PathsFile.GetRecordAt(ptr.FileEntries[id - 1], out etr);
+                                                Console.WriteLine(etr.Path);
+                                            }
+
+                                            foreach (int id in Enumerable.Range(1, ptr.FileEntries.Count).Except(fileIDsToKeep))
+                                            {
+                                                Console.Write("Selected to ");
+                                                Console.ForegroundColor = ConsoleColor.Red;
+                                                Console.Write("DELETE");
+                                                Console.ResetColor();
+                                                Console.Write(" ");
+
+                                                PathsFile.GetRecordAt(ptr.FileEntries[id - 1], out etr);
+                                                Console.WriteLine(etr.Path);
+
+                                                byte[] pathLine = Encoding.UTF8.GetBytes(etr.Path + StreamWriter.Null.NewLine);
+                                                FilesToRemove.Write(pathLine, 0, pathLine.Length);
+                                            }
                                         }
+                                    }
+                                    else if (fileIDsToKeep.Count == 0)
+                                    {
+                                        Console.WriteLine("All files will be deleted:");
 
-                                        foreach (int id in Enumerable.Range(1, ptr.FileEntries.Count).Except(fileIDsToKeep))
+                                        foreach (long offset in ptr.FileEntries)
                                         {
-                                            Console.Write("Selected to ");
-                                            Console.ForegroundColor = ConsoleColor.Red;
-                                            Console.Write("DELETE");
-                                            Console.ResetColor();
-                                            Console.Write(" ");
-
-                                            PathsFile.GetRecordAt(ptr.FileEntries[id - 1], out etr);
+                                            PathsFile.GetRecordAt(offset, out etr);
                                             Console.WriteLine(etr.Path);
 
                                             byte[] pathLine = Encoding.UTF8.GetBytes(etr.Path + StreamWriter.Null.NewLine);
                                             FilesToRemove.Write(pathLine, 0, pathLine.Length);
                                         }
                                     }
+
+                                    FilesToRemove.Flush();
                                 }
-                                else if (fileIDsToKeep.Count == 0)
-                                {
-                                    Console.WriteLine("All files will be deleted:");
-
-                                    foreach(long offset in ptr.FileEntries)
-                                    {
-                                        PathsFile.GetRecordAt(offset, out etr);
-                                        Console.WriteLine(etr.Path);
-
-                                        byte[] pathLine = Encoding.UTF8.GetBytes(etr.Path + StreamWriter.Null.NewLine);
-                                        FilesToRemove.Write(pathLine, 0, pathLine.Length);
-                                    }
-                                }
-
-                                FilesToRemove.Flush();
                             }
+                            else
+                                ++dealtWithCount;
                         }
+                    }
+                }
+            }
+            Console.WriteLine();
+
+            Console.WriteLine("Removing all scheduled files...");
+            if (DryRun)
+                Console.WriteLine("Won't remove files in dry-run/discovery mode.");
+            else
+            {
+                FilesToRemove.Seek(0, SeekOrigin.Begin);
+                string path;
+
+                if (FilesToRemove.Length > 0) // Only if there are files to be removed
+                {
+                    using (StreamReader sr = new StreamReader(FilesToRemove))
+                    {
+                        path = sr.ReadLine();
+                        RemoveFile(path);
                     }
                 }
             }
 
             SizesFileStream.Dispose();
             PathsFileStream.Dispose();
+            HashesFileStream.Dispose();
+            //FilesToRemove.Dispose();
 
-            Console.WriteLine("Press any key to exit...");
-            Console.ReadKey();
+            // Cleanup
+            //File.Delete(".dd_sizes");
+            //File.Delete(".dd_files");
+            //File.Delete(".dd_hashes");
+            //File.Delete(".dd_remove");
 
-            if (FileRemoveException == true)
+            if (FileRemoveException)
             {
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine("One or more files could not be deleted.");
+                Console.ResetColor();
+            }
+
+            Console.WriteLine("Press ENTER to exit...");
+            Console.ReadLine();
+
+            if (FileRemoveException)
                 Environment.Exit(2);
-            }
-            else if (FileRemoveException == false)
-            {
+            else
                 Environment.Exit(0);
-            }
-        }
-
-
-        static void RemoveFile(string file)
-        {
-            Console.Write("File " + Path.GetFileName(file) + " ...");
-
-            try
-            {
-                //File.Delete(file);
-                //Console.WriteLine(" Deleted.");
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
-                FileRemoveException = true;
-            }
         }
 
         // Indicate the number of files counted with visual glyphs.
@@ -640,49 +664,57 @@ namespace DuplicateDestroyer
             {
                 Console.ForegroundColor = ConsoleColor.Cyan;
                 Console.WriteLine(new String('-', Console.WindowWidth - 1));
+                DuplicateFileLog.WriteLine(new String('-', 24));
                 Console.WriteLine("The following " + ptr.FileEntries.Count + " files are duplicate of each other");
+                DuplicateFileLog.WriteLine("The following " + ptr.FileEntries.Count + " files are duplicate of each other");
                 Console.ResetColor();
                 if (Verbose)
                 {
                     Console.ForegroundColor = ConsoleColor.Cyan;
                     Console.WriteLine("Hash: " + ptr.Hash);
+                    DuplicateFileLog.WriteLine("Hash: " + ptr.Hash);
                     Console.ResetColor();
                 }
 
-                Console.Write("Files marked ");
-                Console.ForegroundColor = ConsoleColor.White;
-                Console.Write("[ KEEP ]");
-                Console.ResetColor();
-                Console.Write(" will be kept. Files marked ");
-                Console.ForegroundColor = ConsoleColor.Red;
-                Console.Write("[DELETE]");
-                Console.ResetColor();
-                Console.WriteLine(" will be deleted.");
+                if (!DryRun)
+                {
+                    Console.Write("Files marked ");
+                    Console.ForegroundColor = ConsoleColor.White;
+                    Console.Write("[ KEEP ]");
+                    Console.ResetColor();
+                    Console.Write(" will be kept. Files marked ");
+                    Console.ForegroundColor = ConsoleColor.Red;
+                    Console.Write("[DELETE]");
+                    Console.ResetColor();
+                    Console.WriteLine(" will be deleted.");
 
-                if (!AutoNewest && !AutoOldest)
-                    Console.WriteLine("Please select the files you wish to keep or delete.");
-                else
-                    if (!canAutoSelect)
-                    {
-                        Console.ForegroundColor = ConsoleColor.Yellow;
-                        Console.WriteLine("Was unable to automatically select " + (AutoOldest ? "oldest" : "newest") + " file to keep");
-                        Console.ResetColor();
-                    }
+                    if (!AutoNewest && !AutoOldest)
+                        Console.WriteLine("Please select the files you wish to keep or delete.");
                     else
-                    {
-                        Console.WriteLine("Automatically selecting the " + (AutoOldest ? "OLDEST" : "NEWEST") + " file to keep");
-                        toKeep.Clear();
+                        if (!canAutoSelect)
+                        {
+                            Console.ForegroundColor = ConsoleColor.Yellow;
+                            Console.WriteLine("Was unable to automatically select " + (AutoOldest ? "oldest" : "newest") + " file to keep");
+                            Console.ResetColor();
+                        }
+                        else
+                        {
+                            Console.ForegroundColor = ConsoleColor.Yellow;
+                            Console.WriteLine("Automatically selecting the " + (AutoOldest ? "OLDEST" : "NEWEST") + " file to keep");
+                            Console.ResetColor();
+                            toKeep.Clear();
 
-                        if (AutoOldest)
-                            toKeep.AddRange(oldestIDs);
-                        else if (AutoNewest)
-                            toKeep.AddRange(newestIDs);
-                    }
+                            if (AutoOldest)
+                                toKeep.AddRange(oldestIDs);
+                            else if (AutoNewest)
+                                toKeep.AddRange(newestIDs);
+                        }
+                }
 
                 // Print the file list with a choice
                 int menuId = 1;
                 PathEntry etr = new PathEntry();
-                int totalLog10ofEntries = (int)Math.Floor(Math.Log10((double)ptr.FileEntries.Count + 100)) + 1;
+                int totalLog10ofEntries = (int)Math.Floor(Math.Log10((double)ptr.FileEntries.Count)) + 1;
                 if (totalLog10ofEntries < 3) // Make sure "-1." can be printed
                     totalLog10ofEntries = 3;
                 foreach (long offset in ptr.FileEntries)
@@ -695,40 +727,47 @@ namespace DuplicateDestroyer
                     int strCurrentLength = (int)Math.Floor(Math.Log10((double)menuId)) + 1; // 0-9: 1 long, 10-99: 2 long, etc.
                     ++strCurrentLength; // The '.' (dot) takes up another character
 
-                    if (toKeep.Contains(menuId))
+                    if (!DryRun)
                     {
-                        Console.ForegroundColor = ConsoleColor.White;
-                        Console.Write("[ KEEP ] ");
-                        Console.ResetColor();
-                    }
-                    else
-                    {
-                        Console.ForegroundColor = ConsoleColor.Red;
-                        Console.Write("[DELETE] ");
-                        Console.ResetColor();
+                        if (toKeep.Contains(menuId))
+                        {
+                            Console.ForegroundColor = ConsoleColor.White;
+                            Console.Write("[ KEEP ] ");
+                            Console.ResetColor();
+                        }
+                        else
+                        {
+                            Console.ForegroundColor = ConsoleColor.Red;
+                            Console.Write("[DELETE] ");
+                            Console.ResetColor();
+                        }
                     }
 
                     Console.ForegroundColor = ConsoleColor.Cyan;
                     Console.Write(new String(' ', totalLog10ofEntries - strCurrentLength + 1) + menuId + ". ");
-                    
+                    DuplicateFileLog.Write(new String(' ', totalLog10ofEntries - strCurrentLength + 1) + menuId + ". ");
+
                     if (oldestIDs.Contains(menuId))
                     {
                         Console.ForegroundColor = ConsoleColor.White;
-                        Console.Write(" [OLDEST] ");
+                        Console.Write("[OLDEST] ");
+                        DuplicateFileLog.Write("[OLDEST] ");
                     }
                     else if (newestIDs.Contains(menuId))
                     {
                         Console.ForegroundColor = ConsoleColor.White;
-                        Console.Write(" [NEWEST] ");
+                        Console.Write("[NEWEST] ");
+                        DuplicateFileLog.Write("[NEWEST] ");
                     }
 
                     Console.ResetColor();
                     Console.WriteLine(etr.Path);
+                    DuplicateFileLog.WriteLine(etr.Path);
 
                     ++menuId;
                 }
 
-                if (!AutoNewest && !AutoOldest)
+                if (!AutoNewest && !AutoOldest && !DryRun)
                 {
                     Console.ForegroundColor = ConsoleColor.Magenta;
                     Console.Write("  [DONE] " + new String(' ', totalLog10ofEntries - 2 + 1) + "0. ");
@@ -748,7 +787,7 @@ namespace DuplicateDestroyer
                 }
 
                 // Read the user's choice
-                if (!AutoNewest && !AutoOldest)
+                if (!AutoNewest && !AutoOldest && !DryRun)
                 {
                     Console.WriteLine("Please select an option from above. If you select a file, its status will be togged between keep and delete.");
                     Console.Write("? ");
@@ -800,6 +839,37 @@ namespace DuplicateDestroyer
 
             toKeep.Sort();
             return decided;
+        }
+
+        static void RemoveFile(string path)
+        {
+            if (Verbose)
+                Console.Write("File " + path + "...");
+
+            try
+            {
+                if (Verbose)
+                {
+                    if (!DryRun)
+                    {
+                        //File.Delete(path);
+                        Console.WriteLine(" Deleted.");
+                    }
+                    else
+                        Console.WriteLine();
+                }
+            }
+            catch (Exception ex)
+            {
+                // Print the path here if it was not printed earlier
+                if (!Verbose)
+                    Console.Write("File " + path + "...");
+
+                Console.ForegroundColor = ConsoleColor.Yellow;
+                Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
+                Console.ResetColor();
+                FileRemoveException = true;
+            }
         }
 
         #region Stream methods
