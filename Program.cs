@@ -2,23 +2,13 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using System.Text;
 using System.Security.Cryptography;
+using System.Text;
 
 namespace DuplicateDestroyer
 {
     static class Program
     {
-        class FileSizeComparerDescending : IComparer<long>
-        {
-            public int Compare(long x, long y)
-            {
-                if (x < y) return 1;
-                else if (x > y) return -1;
-                else return 0;
-            }
-        }
-
         static bool Verbose;
         static bool DryRun;
         static bool AutoOldest;
@@ -26,10 +16,9 @@ namespace DuplicateDestroyer
         static bool FileRemoveException;
 
         static string TargetDirectory;
-
-        static SizeFile SizesFile;
         static ulong SizeCount, FileCount;
 
+        static SizeFile SizesFile;
         static PathFile PathsFile;
         static HashFile HashesFile;
         static FileStream FilesToRemove;
@@ -96,201 +85,217 @@ namespace DuplicateDestroyer
             DuplicateFileLog = new StreamWriter(DuplicateFileStream);
 
             FileRemoveException = false;
+            TargetDirectory = "..\\..\\..";
+            Directory.SetCurrentDirectory(TargetDirectory);
             TargetDirectory = Directory.GetCurrentDirectory();
 
-            Console.Write("Counting files and measuring sizes... " + (Verbose ? "\n" : String.Empty));
-            List<string> Subfolders = new List<string>();
-            Subfolders.Add(TargetDirectory);
-            while (Subfolders.Count != 0)
             {
-                // Read the files in the subfolders.
-                ReadFileSizes(Subfolders[0], ref Subfolders);
-                // The on-the-fly detected subfolders are added to the list while reading.
-            }
-            SizesFile.Stream.Flush(true);
-            PathsFile.Stream.Flush(true);
-            Console.WriteLine((!Verbose ? "\n" : String.Empty) + FileCount + " files found.");
-            Console.WriteLine();
-
-            Console.Write("Analysing sizes... ");
-            AnalyseSizes();
-            SizesFile.Stream.Flush(true);
-            PathsFile.Stream.Flush(true);
-            Console.WriteLine(SizeCount + " unique file size found for " + FileCount + " files.");
-            Console.WriteLine();
-
-            // Remove entries from the PathsFile physically which were logically removed (marked deleted) in the previous step
-            if (Verbose)
-            {
-                Console.WriteLine("Removing knowledge about files I don't need to check.");
-                Console.WriteLine("(This is an internal maintenance run to speed up further operations.)");
-            }
-            PathsFile.Consolidate(new SizeFileAligner(Program.AlignSizeFilePointers));
-            PathsFile.Stream.Flush(true);
-            if (Verbose)
+                Console.Write("Counting files and measuring sizes... " + (Verbose ? "\n" : String.Empty));
+                List<string> Subfolders = new List<string>();
+                Subfolders.Add(TargetDirectory);
+                while (Subfolders.Count != 0)
+                {
+                    // Read the files in the subfolders.
+                    ReadFileSizes(Subfolders[0], ref Subfolders);
+                    // The on-the-fly detected subfolders are added to the list while reading.
+                }
+                SizesFile.Stream.Flush(true);
+                PathsFile.Stream.Flush(true);
+                Console.WriteLine((!Verbose ? "\n" : String.Empty) + FileCount + " files found.");
                 Console.WriteLine();
+            }
 
-            Console.WriteLine("Reading file contents...");
-            MD5CryptoServiceProvider mcsp = new MD5CryptoServiceProvider();
-
-            foreach (SizeEntry duplicated_size in SizesFile.GetRecords())
             {
+                Console.Write("Analysing sizes... ");
+                AnalyseSizes();
+                SizesFile.Stream.Flush(true);
+                PathsFile.Stream.Flush(true);
+                Console.WriteLine(SizeCount + " unique file size found for " + FileCount + " files.");
+                Console.WriteLine();
+            }
+
+            {
+                // Remove entries from the PathsFile physically which were logically removed (marked deleted) in the previous step
                 if (Verbose)
                 {
-                    Console.ForegroundColor = ConsoleColor.Cyan;
-                    Console.WriteLine("Reading files of " + duplicated_size.Size + " size");
-                    Console.ResetColor();
+                    Console.WriteLine("Removing knowledge about files I don't need to check.");
+                    Console.WriteLine("(This is an internal maintenance run to speed up further operations.)");
                 }
-                // For each size entry, iterate the path list
-                PathEntry entry;
-                long position = duplicated_size.FirstPath;
+                PathsFile.Consolidate(new SizeFileAligner(Program.AlignSizeFilePointers));
+                PathsFile.Stream.Flush(true);
+                if (Verbose)
+                    Console.WriteLine();
+            }
 
-                while (position != -1)
+            {
+                Console.WriteLine("Reading file contents...");
+                MD5CryptoServiceProvider mcsp = new MD5CryptoServiceProvider();
+                ulong _hashesReadCount = 0;
+                foreach (SizeEntry duplicated_size in SizesFile.GetRecords())
                 {
-                    if (PathsFile.GetRecordAt(position, out entry))
+                    if (Verbose)
                     {
-                        string hash = String.Empty;
-                        try
-                        {
-                            hash = CalculateHash(ref mcsp, entry.Path);
-                        }
-                        catch (Exception ex)
-                        {
-                            Console.ForegroundColor = ConsoleColor.Yellow;
-                            Console.WriteLine("The file " + entry.Path + " could not be checked, because:");
-                            Console.ResetColor();
-                            Console.WriteLine(ex.Message);
-                        }
+                        Console.ForegroundColor = ConsoleColor.Cyan;
+                        Console.WriteLine("Reading files of " + duplicated_size.Size + " size");
+                        Console.ResetColor();
+                    }
+                    // For each size entry, iterate the path list
+                    PathEntry entry;
+                    long position = duplicated_size.FirstPath;
 
-                        if (!String.IsNullOrEmpty(hash))
-                            entry.Hash = hash;
-                        else
-                            // Mark this record "deleted" so it won't be checked for hash duplication
-                            entry.Deleted = true;
+                    while (position != -1)
+                    {
+                        if (PathsFile.GetRecordAt(position, out entry))
+                        {
+                            string hash = String.Empty;
+                            try
+                            {
+                                hash = CalculateHash(ref mcsp, entry.Path);
+                                ++_hashesReadCount;
+                            }
+                            catch (Exception ex)
+                            {
+                                Console.ForegroundColor = ConsoleColor.Yellow;
+                                Console.WriteLine("The file " + entry.Path + " could not be checked, because:");
+                                Console.ResetColor();
+                                Console.WriteLine(ex.Message);
+                            }
 
-                        PathsFile.WriteRecordAt(entry, position);
-                        position = entry.NextRecord; // Jump to the next record in the chain
+                            if (!String.IsNullOrEmpty(hash))
+                                entry.Hash = hash;
+                            else
+                                // Mark this record "deleted" so it won't be checked for hash duplication
+                                entry.Deleted = true;
+
+                            PathsFile.WriteRecordAt(entry, position);
+                            VisualGlyph(_hashesReadCount);
+                            position = entry.NextRecord; // Jump to the next record in the chain
+                        }
                     }
                 }
+                PathsFile.Stream.Flush(true);
+                Console.WriteLine();
             }
-            PathsFile.Stream.Flush(true);
-            Console.WriteLine();
 
-            Console.WriteLine("Searching for true duplication... ");
-            long UniqueHashCount, DuplicatedFileCount;
-            AnalyseFilelist(out UniqueHashCount, out DuplicatedFileCount);
-            HashesFile.Stream.Flush(true);
-            Console.WriteLine(UniqueHashCount + " unique content duplicated across " + DuplicatedFileCount + " files.");
-            Console.WriteLine();
-
-            Console.WriteLine();
-            Console.WriteLine("Please select which files you wish to remove.");
-            long dealtWithCount = 0;
-            while (dealtWithCount < UniqueHashCount)
             {
-                // We go through every hash entry and prompt the user to decide which file to remove
-                HashesFile.Stream.Seek(0, SeekOrigin.Begin);
-                SizeHashEntry she = new SizeHashEntry();
-                PathEntry etr = new PathEntry();
-                long pos = 0;
+                Console.WriteLine("Searching for true duplication... ");
+                long UniqueHashCount, DuplicatedFileCount;
+                AnalyseFilelist(out UniqueHashCount, out DuplicatedFileCount);
+                HashesFile.Stream.Flush(true);
+                Console.WriteLine(UniqueHashCount + " unique content duplicated across " + DuplicatedFileCount + " files.");
+                Console.WriteLine();
 
-                while (pos != -1)
+                Console.WriteLine();
+                Console.WriteLine("Please select which files you wish to remove.");
+                long dealtWithCount = 0;
+                while (dealtWithCount < UniqueHashCount)
                 {
-                    // Get the next duplicated hash
-                    pos = HashesFile.GetNextRecord(out she);
-                    if (pos != -1)
+                    // We go through every hash entry and prompt the user to decide which file to remove
+                    HashesFile.Stream.Seek(0, SeekOrigin.Begin);
+                    SizeHashEntry she = new SizeHashEntry();
+                    PathEntry etr = new PathEntry();
+                    long pos = 0;
+
+                    while (pos != -1)
                     {
-                        // Iterate the hash pointers...
-                        foreach (HashPointers ptr in she.Pointers)
+                        // Get the next duplicated hash
+                        pos = HashesFile.GetNextRecord(out she);
+                        if (pos != -1)
                         {
-                            if (ptr.FileEntries.Count == 0)
-                                continue;
-
-                            // Select which file the user wants to keep
-                            List<int> fileIDsToKeep;
-                            bool userDecided = SelectFilesToKeep(ptr, out fileIDsToKeep);
-
-                            if (!DryRun)
+                            // Iterate the hash pointers...
+                            foreach (HashPointers ptr in she.Pointers)
                             {
-                                if (!userDecided)
-                                    Console.WriteLine("Didn't make a decision. You will be asked later on.");
-                                else
+                                if (ptr.FileEntries.Count == 0)
+                                    continue;
+
+                                // Select which file the user wants to keep
+                                List<int> fileIDsToKeep;
+                                bool userDecided = SelectFilesToKeep(ptr, out fileIDsToKeep);
+
+                                if (!DryRun)
                                 {
-                                    ++dealtWithCount;
-
-                                    if (fileIDsToKeep.Count == ptr.FileEntries.Count)
-                                        Console.WriteLine("Selected to keep all files.");
-                                    else if (fileIDsToKeep.Count > 0)
+                                    if (!userDecided)
+                                        Console.WriteLine("Didn't make a decision. You will be asked later on.");
+                                    else
                                     {
-                                        if (!AutoOldest && !AutoOldest)
+                                        ++dealtWithCount;
+
+                                        if (fileIDsToKeep.Count == ptr.FileEntries.Count)
+                                            Console.WriteLine("Selected to keep all files.");
+                                        else if (fileIDsToKeep.Count > 0)
                                         {
-                                            foreach (int id in fileIDsToKeep)
+                                            if (!AutoOldest && !AutoOldest)
                                             {
-                                                Console.Write("Selected to  ");
-                                                Console.ForegroundColor = ConsoleColor.White;
-                                                Console.Write("KEEP");
-                                                Console.ResetColor();
-                                                Console.Write("  ");
+                                                foreach (int id in fileIDsToKeep)
+                                                {
+                                                    Console.Write("Selected to  ");
+                                                    Console.ForegroundColor = ConsoleColor.White;
+                                                    Console.Write("KEEP");
+                                                    Console.ResetColor();
+                                                    Console.Write("  ");
 
-                                                PathsFile.GetRecordAt(ptr.FileEntries[id - 1], out etr);
-                                                Console.WriteLine(etr.Path);
+                                                    PathsFile.GetRecordAt(ptr.FileEntries[id - 1], out etr);
+                                                    Console.WriteLine(etr.Path);
+                                                }
+
+                                                foreach (int id in Enumerable.Range(1, ptr.FileEntries.Count).Except(fileIDsToKeep))
+                                                {
+                                                    Console.Write("Selected to ");
+                                                    Console.ForegroundColor = ConsoleColor.Red;
+                                                    Console.Write("DELETE");
+                                                    Console.ResetColor();
+                                                    Console.Write(" ");
+
+                                                    PathsFile.GetRecordAt(ptr.FileEntries[id - 1], out etr);
+                                                    Console.WriteLine(etr.Path);
+
+                                                    byte[] pathLine = Encoding.UTF8.GetBytes(etr.Path + StreamWriter.Null.NewLine);
+                                                    FilesToRemove.Write(pathLine, 0, pathLine.Length);
+                                                }
                                             }
+                                        }
+                                        else if (fileIDsToKeep.Count == 0)
+                                        {
+                                            Console.WriteLine("All files will be deleted:");
 
-                                            foreach (int id in Enumerable.Range(1, ptr.FileEntries.Count).Except(fileIDsToKeep))
+                                            foreach (long offset in ptr.FileEntries)
                                             {
-                                                Console.Write("Selected to ");
-                                                Console.ForegroundColor = ConsoleColor.Red;
-                                                Console.Write("DELETE");
-                                                Console.ResetColor();
-                                                Console.Write(" ");
-
-                                                PathsFile.GetRecordAt(ptr.FileEntries[id - 1], out etr);
+                                                PathsFile.GetRecordAt(offset, out etr);
                                                 Console.WriteLine(etr.Path);
 
                                                 byte[] pathLine = Encoding.UTF8.GetBytes(etr.Path + StreamWriter.Null.NewLine);
                                                 FilesToRemove.Write(pathLine, 0, pathLine.Length);
                                             }
                                         }
+
+                                        FilesToRemove.Flush();
                                     }
-                                    else if (fileIDsToKeep.Count == 0)
-                                    {
-                                        Console.WriteLine("All files will be deleted:");
-
-                                        foreach (long offset in ptr.FileEntries)
-                                        {
-                                            PathsFile.GetRecordAt(offset, out etr);
-                                            Console.WriteLine(etr.Path);
-
-                                            byte[] pathLine = Encoding.UTF8.GetBytes(etr.Path + StreamWriter.Null.NewLine);
-                                            FilesToRemove.Write(pathLine, 0, pathLine.Length);
-                                        }
-                                    }
-
-                                    FilesToRemove.Flush();
                                 }
+                                else
+                                    ++dealtWithCount;
                             }
-                            else
-                                ++dealtWithCount;
                         }
                     }
                 }
+                Console.WriteLine();
             }
-            Console.WriteLine();
 
-            Console.WriteLine("Removing all scheduled files...");
-            if (DryRun)
-                Console.WriteLine("Won't remove files in dry-run/discovery mode.");
-            else
             {
-                FilesToRemove.Seek(0, SeekOrigin.Begin);
-                string path;
-
-                if (FilesToRemove.Length > 0) // Only if there are files to be removed
+                Console.WriteLine("Removing all scheduled files...");
+                if (DryRun)
+                    Console.WriteLine("Won't remove files in dry-run/discovery mode.");
+                else
                 {
-                    using (StreamReader sr = new StreamReader(FilesToRemove))
+                    FilesToRemove.Seek(0, SeekOrigin.Begin);
+                    string path;
+
+                    if (FilesToRemove.Length > 0) // Only if there are files to be removed
                     {
-                        path = sr.ReadLine();
-                        RemoveFile(path);
+                        using (StreamReader sr = new StreamReader(FilesToRemove))
+                        {
+                            path = sr.ReadLine();
+                            RemoveFile(path);
+                        }
                     }
                 }
             }
@@ -321,10 +326,6 @@ namespace DuplicateDestroyer
             else
                 Environment.Exit(0);
         }
-
-        // Indicate the number of files counted with visual glyphs.
-        // Each marks a ten-fold increasement. So # is 10s, & is 100s, @ is 1000s, etc.
-        //static char[] CountVisualGlyphs = new char[] { '#', '&', '@', '$', '*' };
 
         static void ReadFileSizes(string directory, ref List<string> subfolderList)
         {
@@ -409,22 +410,7 @@ namespace DuplicateDestroyer
                                     Console.WriteLine(" Size: " + fi.Length.HumanReadableSize() + " bytes.");
 
                                 ++FileCount;
-
-                                // If verbose mode is turned off, give some visual hint for the user.
-                                /*if (!Verbose && CountVisualGlyphs.Length > 0)
-                                {
-                                    if (FileCount % 10 == 0)
-                                        Console.Write(CountVisualGlyphs[0]);
-
-                                    for (byte i = 2; i < CountVisualGlyphs.Length + 1; ++i)
-                                        if (FileCount % Math.Pow(10, i) == 0)
-                                        {
-                                            Console.Write(new String('\b', 10));
-                                            Console.Write(new String(' ', 10));
-                                            Console.Write(new String('\b', 10));
-                                            Console.Write(CountVisualGlyphs[i - 1]);
-                                        }
-                                }*/
+                                VisualGlyph(FileCount);
                             }
                             catch (Exception ex)
                             {
@@ -524,6 +510,8 @@ namespace DuplicateDestroyer
                     if (Verbose)
                         Console.WriteLine();
                 }
+
+                VisualGlyph((ulong)(SizesFile.RecordCount - i));
             }
 
             SizesFile.Stream.Flush(true);
@@ -532,7 +520,7 @@ namespace DuplicateDestroyer
 
         static string CalculateHash(ref MD5CryptoServiceProvider mcsp, string path)
         {
-            if (Verbose == true)
+            if (Verbose)
                 Console.Write("Reading file " + path + "...");
 
             byte[] md5bytes;
@@ -543,7 +531,7 @@ namespace DuplicateDestroyer
             for (int i = 0; i < md5bytes.Length; ++i)
                 sb.Append(md5bytes[i].ToString("x2"));
 
-            if (Verbose == true)
+            if (Verbose)
                 Console.WriteLine(" Hash: " + sb.ToString() + ".");
 
             return sb.ToString();
@@ -592,6 +580,7 @@ namespace DuplicateDestroyer
                         if (Verbose)
                             Console.WriteLine("Skipping file " + entry.Path + ", I was unable to check it.");
 
+                    VisualGlyph((ulong)DuplicatedFileCount);
                     pos = entry.NextRecord;
                 }
 
@@ -852,7 +841,7 @@ namespace DuplicateDestroyer
                 {
                     if (!DryRun)
                     {
-                        //File.Delete(path);
+                        File.Delete(path);
                         Console.WriteLine(" Deleted.");
                     }
                     else
@@ -1069,5 +1058,28 @@ namespace DuplicateDestroyer
             return ((long)size).HumanReadableSize();
         }
         #endregion
+
+        // Indicate the number of files counted with visual glyphs.
+        // Each marks a ten-fold increasement. So # is 10s, & is 100s, @ is 1000s, etc.
+        static char[] CountVisualGlyphs = new char[] { '#', '?', '&', '@', '*', '$', '%' };
+
+        private static void VisualGlyph(ulong counter)
+        {
+            // If verbose mode is turned off, give some visual hint for the user based on the counter
+            if (!Verbose && CountVisualGlyphs.Length > 0)
+            {
+                if (counter % 10 == 0)
+                    Console.Write(CountVisualGlyphs[0]);
+
+                for (byte i = 2; i < CountVisualGlyphs.Length + 1; ++i)
+                    if (counter % Math.Pow(10, i) == 0)
+                    {
+                        Console.Write(new String('\b', 10));
+                        Console.Write(new String(' ', 10));
+                        Console.Write(new String('\b', 10));
+                        Console.Write(CountVisualGlyphs[i - 1]);
+                    }
+            }
+        }
     }
 }

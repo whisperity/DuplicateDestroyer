@@ -1,9 +1,6 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
+﻿using System.Collections.Generic;
 using System.IO;
+using System.Text;
 
 namespace DuplicateDestroyer
 {
@@ -36,7 +33,6 @@ namespace DuplicateDestroyer
             // The layout in the file is as follows:
             // Bool indicating whether the hash entry is decided, number of HashPointers and then the block of hash pointers
             // Each block begins with a Hash string, then a number of file entry pointers, then those pointers itself
-
             using (BinaryWriter bw = new BinaryWriter(this.Stream, Encoding.UTF8, true))
             {
                 bw.Write(entry.Decided); // bool 1
