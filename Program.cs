@@ -31,6 +31,7 @@ namespace DuplicateDestroyer
         static ulong SizeCount, FileCount;
 
         static PathFile PathsFile;
+        static HashFile HashesFile;
 
         static void Main(string[] args)
         {
@@ -80,6 +81,9 @@ namespace DuplicateDestroyer
             PathsFileStream.SetLength(0);
             PathsFile = new PathFile(PathsFileStream);
 
+            FileStream HashesFileStream = new FileStream(".dd_hashes", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
+            HashesFileStream.SetLength(0);
+            HashesFile = new HashFile(HashesFileStream);
 
             FileRemoveException = false;
             TargetDirectory = Directory.GetCurrentDirectory();
@@ -101,10 +105,10 @@ namespace DuplicateDestroyer
 
             Console.Write("Analysing sizes... ");
             AnalyseSizes();
-            Console.Write(SizeCount + " unique file size");
-            Console.WriteLine(" found for " + FileCount + " files.");
+            SizesFile.Stream.Flush(true);
+            PathsFile.Stream.Flush(true);
+            Console.WriteLine(SizeCount + " unique file size found for " + FileCount + " files.");
             Console.WriteLine();
-
 
             //PathsFile.Consolidate(new SizeFileAligner(Program.AlignSizeFilePointers));
 
@@ -130,6 +134,7 @@ namespace DuplicateDestroyer
                     }
                 }
             }
+            PathsFile.Stream.Flush(true);
             Console.WriteLine();
 
             Console.WriteLine("Searching for true duplication... ");
@@ -252,32 +257,6 @@ namespace DuplicateDestroyer
             else if (FileRemoveException == false)
             {
                 Environment.Exit(0);
-            }
-        }
-
-        static void AnalyseFilelist(out SortedList<string, List<string>> duplicateLists)
-        {
-            duplicateLists = new SortedList<string, List<string>>();
-
-            foreach (SizeEntry se in SizesFile.GetRecords())
-            {
-                PathEntry firstEntry;
-                PathsFile.GetRecordAt(se.FirstPath, out firstEntry);
-
-                // TODO: obviously, this will also go into a file backend!
-                // I really don't like var, but
-                // System.Linq.Enumerable.WhereSelectEnumerableIterator<System.Linq.IGrouping<string,DuplicateDestroyer.PathEntry>,<>f__AnonymousType0<string,System.Collections.Generic.IEnumerable<string>>>
-                var fileGroupsWithThisSize = PathsFile.GetRecords(firstEntry.Path, se.FirstPath, false)
-                    .GroupBy(pf => pf.Hash)
-                    .Where(group => group.Count() > 1)
-                    .Select(hash => new
-                    {
-                        Hash = hash.Key,
-                        Files = hash.Select(file => file.Path)
-                    });
-
-                foreach (var hashGroup in fileGroupsWithThisSize)
-                    duplicateLists.Add(hashGroup.Hash, hashGroup.Files.ToList());
             }
         }
 
@@ -414,7 +393,8 @@ namespace DuplicateDestroyer
                     string relativePath = Path.GetFullPath(path).Replace(Directory.GetCurrentDirectory(), String.Empty).TrimStart('\\');
 
                     // Skip some files which should not be access by the program
-                    if (Path.GetFullPath(path) == SizesFile.Stream.Name || Path.GetFullPath(path) == PathsFile.Stream.Name)
+                    if (Path.GetFullPath(path) == SizesFile.Stream.Name || Path.GetFullPath(path) == PathsFile.Stream.Name
+                        || Path.GetFullPath(path) == HashesFile.Stream.Name)
                         continue;
 
                     try
@@ -436,62 +416,79 @@ namespace DuplicateDestroyer
                             // If it is a file, register its size and the count for its size
                             FileInfo fi = new FileInfo(relativePath);
 
-                            SizeEntry entry = new SizeEntry();
-                            long position = 0;
-                            bool known = SizesFile.GetRecord((ulong)fi.Length, out entry, out position);
-                            entry.Size = (ulong)fi.Length;
-                            if (!known)
+                            try
                             {
-                                // Need to reset the entry's count because GetRecord gives
-                                // undefined value if the entry is not found.
-                                entry.Count = 0;
-                                ++SizeCount;
+                                SizeEntry entry = new SizeEntry();
+                                long position = 0;
+                                bool known = SizesFile.GetRecord((ulong)fi.Length, out entry, out position);
+                                entry.Size = (ulong)fi.Length;
+                                if (!known)
+                                {
+                                    // Need to reset the entry's count because GetRecord gives
+                                    // undefined value if the entry is not found.
+                                    entry.Count = 0;
+                                    ++SizeCount;
 
-                                // The new size record currently has no associated PathEntry records in the path file.
-                                entry.FirstPath = -1;
-                                entry.LastPath = -1;
+                                    // The new size record currently has no associated PathEntry records in the path file.
+                                    entry.FirstPath = -1;
+                                    entry.LastPath = -1;
+                                    entry.HashEntry = -1;
+                                }
+                                entry.Count++;
+
+                                // Also register its path
+                                PathEntry pathRec = new PathEntry(relativePath);
+                                long pathWrittenPosition;
+                                if (entry.LastPath != -1)
+                                {
+                                    PathEntry previousLastEntry = new PathEntry();
+                                    PathsFile.GetRecordAt(entry.LastPath, out previousLastEntry);
+                                    pathWrittenPosition = PathsFile.AddAfter(previousLastEntry, pathRec, entry.LastPath);
+                                }
+                                else
+                                {
+                                    pathWrittenPosition = PathsFile.WriteRecord(pathRec);
+
+                                    entry.FirstPath = pathWrittenPosition;
+                                }
+
+                                entry.LastPath = pathWrittenPosition;
+                                SizesFile.WriteRecord(entry);
+
+                                if (Verbose)
+                                    Console.WriteLine(" Size: " + fi.Length.ToString() + " bytes.");
+
+                                ++FileCount;
+
+                                // If verbose mode is turned off, give some visual hint for the user.
+                                /*if (!Verbose && CountVisualGlyphs.Length > 0)
+                                {
+                                    if (FileCount % 10 == 0)
+                                        Console.Write(CountVisualGlyphs[0]);
+
+                                    for (byte i = 2; i < CountVisualGlyphs.Length + 1; ++i)
+                                        if (FileCount % Math.Pow(10, i) == 0)
+                                        {
+                                            Console.Write(new String('\b', 10));
+                                            Console.Write(new String(' ', 10));
+                                            Console.Write(new String('\b', 10));
+                                            Console.Write(CountVisualGlyphs[i - 1]);
+                                        }
+                                }*/
                             }
-                            entry.Count++;
-
-                            // Also register its path
-                            PathEntry pathRec = new PathEntry(relativePath);
-                            long pathWrittenPosition;
-                            if (entry.LastPath != -1)
+                            catch (Exception ex)
                             {
-                                PathEntry previousLastEntry = new PathEntry();
-                                PathsFile.GetRecordAt(entry.LastPath, out previousLastEntry);
-                                pathWrittenPosition = PathsFile.AddAfter(previousLastEntry, pathRec, entry.LastPath);
+                                Console.ForegroundColor = ConsoleColor.Red;
+                                Console.WriteLine("There was an error registering " + relativePath + " in the databank.");
+                                Console.ResetColor();
+                                Console.WriteLine(ex.Message);
+
+                                Console.ForegroundColor = ConsoleColor.Red;
+                                Console.WriteLine("This indicates an error with the databank. Execution cannot continue.");
+                                Console.ResetColor();
+                                Console.ReadLine();
+                                Environment.Exit(1);
                             }
-                            else
-                            {
-                                pathWrittenPosition = PathsFile.WriteRecord(pathRec);
-
-                                entry.FirstPath = pathWrittenPosition;
-                            }
-
-                            entry.LastPath = pathWrittenPosition;
-                            SizesFile.WriteRecord(entry);
-
-                            if (Verbose)
-                                Console.WriteLine(" Size: " + fi.Length.ToString() + " bytes.");
-
-                            ++FileCount;
-
-                            // If verbose mode is turned off, give some visual hint for the user.
-                            /*if (!Verbose && CountVisualGlyphs.Length > 0)
-                            {
-                                if (FileCount % 10 == 0)
-                                    Console.Write(CountVisualGlyphs[0]);
-
-                                for (byte i = 2; i < CountVisualGlyphs.Length + 1; ++i)
-                                    if (FileCount % Math.Pow(10, i) == 0)
-                                    {
-                                        Console.Write(new String('\b', 10));
-                                        Console.Write(new String(' ', 10));
-                                        Console.Write(new String('\b', 10));
-                                        Console.Write(CountVisualGlyphs[i - 1]);
-                                    }
-                            }*/
                         }
                     }
                     catch (Exception ex)
@@ -527,7 +524,7 @@ namespace DuplicateDestroyer
                 {
                     rec = SizesFile.GetRecordByIndex(i);
                 }
-                catch (Exception ex)
+                catch (Exception)
                 {
                     //Console.ForegroundColor = ConsoleColor.Yellow;
                     //Console.WriteLine("Couldn't get, because");
@@ -586,6 +583,63 @@ namespace DuplicateDestroyer
                 Console.WriteLine(" Hash: " + sb.ToString() + ".");
 
             return sb.ToString();
+        }
+
+        static void AnalyseFilelist(out SortedList<string, List<string>> duplicateLists)
+        {
+            // Go through every size entry and build the hash lists
+            duplicateLists = new SortedList<string, List<string>>();
+
+            for (long i = 0; i < SizesFile.RecordCount; ++i)
+            {
+                SizeEntry se = SizesFile.GetRecordByIndex(i);
+
+                SizeHashEntry she = new SizeHashEntry()
+                {
+                    Pointers = new List<HashPointers>()
+                };
+
+                // Get the files with the current size
+                PathEntry entry;
+                long pos = se.FirstPath;
+                while (pos != -1)
+                {
+                    if (!PathsFile.GetRecordAt(pos, out entry))
+                        break;
+
+                    // Get the file pointer list for the current hash
+                    HashPointers curHash = she.Pointers.Where(p => p.Hash  == entry.Hash).FirstOrDefault();
+                    if (curHash.FileEntries == null)
+                    {
+                        // This indicates that this is a new hash, allocate the List for it to prevent a null reference
+                        curHash.Hash = entry.Hash;
+                        curHash.FileEntries = new List<long>();
+
+                        she.Pointers.Add(curHash);
+
+                        List<string> fList = new List<string>();
+                        duplicateLists.Add(entry.Hash, fList);
+                    }
+                    curHash.FileEntries.Add(pos); // A file with this hash is found at this position
+                    duplicateLists[entry.Hash].Add(entry.Path);
+
+                    pos = entry.NextRecord;
+                }
+
+                // Remove hashes which is had by only one file
+                she.Pointers.RemoveAll(hp => hp.FileEntries.Count == 1);
+                List<string> hashesToRemove = duplicateLists.Where(dl => dl.Value.Count == 1).Select(dl => dl.Key).ToList();
+                foreach (string hash in hashesToRemove)
+                    duplicateLists.Remove(hash);
+
+
+                // Write the current hash's data to the datafile
+                long shePosition = HashesFile.WriteRecord(she);
+
+                // Update the size table to save where the hash map begins
+                se.HashEntry = shePosition;
+                SizesFile.WriteRecordAt(se, i * SizeEntry.RecordSize);
+            }
         }
 
         #region Stream methods
