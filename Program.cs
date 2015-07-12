@@ -27,7 +27,7 @@ namespace DuplicateDestroyer
         static void Main(string[] args)
         {
             Console.WriteLine("Duplicate Destroyer");
-            Console.WriteLine("'Catastrophic Canon'");
+            Console.WriteLine("'Devastating Desert'");
             Console.WriteLine("Licenced under Tiny Driplet Licence (can be found at cloudchiller.net)");
             Console.WriteLine("Copyright, Copydrunk, Copypone (c) 2012-2014, Cloud Chiller");
             Console.WriteLine();
@@ -35,11 +35,11 @@ namespace DuplicateDestroyer
             if (args.Contains("-h"))
             {
                 Console.WriteLine("HELP:");
-                Console.WriteLine("-h       Show this help text.");
+                Console.WriteLine("-h       Show this help text");
                 Console.WriteLine("-v       Verbose mode");
-                Console.WriteLine("-d       Dry run. Only check for duplicates, but don't actually remove them.");
-                Console.WriteLine("-o       Automatically schedule the OLDEST file for keeping.");
-                Console.WriteLine("-n       Automatically schedule the NEWEST file for keeping.");
+                Console.WriteLine("-d       Dry run/discovery - Only check for duplicates, but don't actually remove them");
+                Console.WriteLine("-o       Automatically keep the OLDEST of the files");
+                Console.WriteLine("-n       Automatically keep the NEWEST of the files");
                 Console.WriteLine();
                 Console.WriteLine("Omitting both -o and -n results in the user being queried about which file to keep.");
                 Console.WriteLine("Using both -o and -n throws an error.");
@@ -64,29 +64,45 @@ namespace DuplicateDestroyer
                 Environment.Exit(3);
             }
 
-            FileStream SizesFileStream = new FileStream(".dd_sizes", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
-            SizesFileStream.SetLength(0);
+            FileStream SizesFileStream = null;
+            FileStream PathsFileStream = null;
+            FileStream HashesFileStream = null;
+            FileStream DuplicateLogFileStream = null;
+            try
+            {
+                SizesFileStream = new FileStream(".dd_sizes", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                SizesFileStream.SetLength(0);
+
+                PathsFileStream = new FileStream(".dd_files", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                PathsFileStream.SetLength(0);
+
+                HashesFileStream = new FileStream(".dd_hashes", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                HashesFileStream.SetLength(0);
+
+                FilesToRemove = new FileStream(".dd_remove", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.None);
+                FilesToRemove.SetLength(0);
+
+                DuplicateLogFileStream = new FileStream("duplicates_" + DateTime.Now.ToString().Replace(":", "_") + ".log", FileMode.OpenOrCreate,
+                    FileAccess.Write, FileShare.None);
+                DuplicateLogFileStream.SetLength(0);
+            }
+            catch (Exception ex)
+            {
+                Console.ForegroundColor = ConsoleColor.Red;
+                Console.WriteLine("Was unable to create the program's datafiles.");
+                Console.ResetColor();
+                Console.WriteLine("Please make sure the folder " + Directory.GetCurrentDirectory() + " is writable.");
+                Console.WriteLine("The following error happened: " + ex.Message);
+
+                Environment.Exit(1);
+            }
+
             SizesFile = new SizeFile(SizesFileStream);
-
-            FileStream PathsFileStream = new FileStream(".dd_files", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
-            PathsFileStream.SetLength(0);
             PathsFile = new PathFile(PathsFileStream);
-
-            FileStream HashesFileStream = new FileStream(".dd_hashes", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
-            HashesFileStream.SetLength(0);
             HashesFile = new HashFile(HashesFileStream);
-
-            FilesToRemove = new FileStream(".dd_remove", FileMode.OpenOrCreate, FileAccess.ReadWrite, FileShare.Read);
-            FilesToRemove.SetLength(0);
-
-            FileStream DuplicateFileStream = new FileStream("duplicates_" + DateTime.Now.ToString().Replace(":", "_") + ".log", FileMode.OpenOrCreate,
-                FileAccess.Write, FileShare.None);
-            DuplicateFileStream.SetLength(0);
-            DuplicateFileLog = new StreamWriter(DuplicateFileStream);
+            DuplicateFileLog = new StreamWriter(DuplicateLogFileStream);
 
             FileRemoveException = false;
-            TargetDirectory = "..\\..\\..";
-            Directory.SetCurrentDirectory(TargetDirectory);
             TargetDirectory = Directory.GetCurrentDirectory();
 
             {
@@ -106,11 +122,11 @@ namespace DuplicateDestroyer
             }
 
             {
-                Console.Write("Analysing sizes... ");
+                Console.Write("Analysing sizes... " + (Verbose ? "\n" : String.Empty));
                 AnalyseSizes();
                 SizesFile.Stream.Flush(true);
                 PathsFile.Stream.Flush(true);
-                Console.WriteLine(SizeCount + " unique file size found for " + FileCount + " files.");
+                Console.WriteLine((!Verbose ? "\n" : String.Empty) + SizeCount + " unique file size found for " + FileCount + " files.");
                 Console.WriteLine();
             }
 
@@ -128,7 +144,7 @@ namespace DuplicateDestroyer
             }
 
             {
-                Console.WriteLine("Reading file contents...");
+                Console.Write("Reading file contents... " + (Verbose ? "\n" : String.Empty));
                 MD5CryptoServiceProvider mcsp = new MD5CryptoServiceProvider();
                 ulong _hashesReadCount = 0;
                 foreach (SizeEntry duplicated_size in SizesFile.GetRecords())
@@ -174,15 +190,15 @@ namespace DuplicateDestroyer
                     }
                 }
                 PathsFile.Stream.Flush(true);
-                Console.WriteLine();
+                Console.WriteLine((!Verbose ? "\n" : String.Empty) + _hashesReadCount + " files read.");
             }
 
             {
-                Console.WriteLine("Searching for true duplication... ");
+                Console.Write("Searching for true duplication... " + (Verbose ? "\n" : String.Empty));
                 long UniqueHashCount, DuplicatedFileCount;
                 AnalyseFilelist(out UniqueHashCount, out DuplicatedFileCount);
                 HashesFile.Stream.Flush(true);
-                Console.WriteLine(UniqueHashCount + " unique content duplicated across " + DuplicatedFileCount + " files.");
+                Console.WriteLine((!Verbose ? "\n" : String.Empty) + UniqueHashCount + " unique content duplicated across " + DuplicatedFileCount + " files.");
                 Console.WriteLine();
 
                 Console.WriteLine();
@@ -224,7 +240,7 @@ namespace DuplicateDestroyer
                                             Console.WriteLine("Selected to keep all files.");
                                         else if (fileIDsToKeep.Count > 0)
                                         {
-                                            if (!AutoOldest && !AutoOldest)
+                                            if (!AutoOldest && !AutoNewest)
                                             {
                                                 foreach (int id in fileIDsToKeep)
                                                 {
@@ -281,7 +297,8 @@ namespace DuplicateDestroyer
             }
 
             {
-                Console.WriteLine("Removing all scheduled files...");
+                Console.Write("Removing all scheduled files... " + (Verbose ? "\n" : String.Empty));
+                uint _filesRemoved = 0;
                 if (DryRun)
                     Console.WriteLine("Won't remove files in dry-run/discovery mode.");
                 else
@@ -294,16 +311,19 @@ namespace DuplicateDestroyer
                         using (StreamReader sr = new StreamReader(FilesToRemove))
                         {
                             path = sr.ReadLine();
-                            RemoveFile(path);
+                            if (RemoveFile(path))
+                                ++_filesRemoved;
                         }
                     }
                 }
+                Console.WriteLine((!Verbose ? "\n" : String.Empty) + _filesRemoved + " files deleted successfully.");
             }
 
             SizesFileStream.Dispose();
             PathsFileStream.Dispose();
             HashesFileStream.Dispose();
             //FilesToRemove.Dispose();
+            DuplicateFileLog.Dispose();
 
             // Cleanup
             //File.Delete(".dd_sizes");
@@ -345,7 +365,14 @@ namespace DuplicateDestroyer
 
                     // Skip some files which should not be access by the program
                     if (Path.GetFullPath(path) == SizesFile.Stream.Name || Path.GetFullPath(path) == PathsFile.Stream.Name
-                        || Path.GetFullPath(path) == HashesFile.Stream.Name || Path.GetFullPath(path) == FilesToRemove.Name)
+                        || Path.GetFullPath(path) == HashesFile.Stream.Name || Path.GetFullPath(path) == FilesToRemove.Name
+                        || Path.GetFullPath(path) == ((FileStream)DuplicateFileLog.BaseStream).Name)
+                        continue;
+
+                    // Skip files if they are in a Subversion structure
+                    // SVN saves a "pristine" copy of every file, and this makes every SVNd file to be marked as duplicate.
+                    if (relativePath.Contains(".svn\\pristine") || relativePath.Contains(".svn\\entries")
+                        || relativePath.Contains(".svn\\format"))
                         continue;
 
                     try
@@ -453,6 +480,7 @@ namespace DuplicateDestroyer
             // As there could not be duplicates that way.
 
             // Go from the back to make the least write overhead when a record is deleted
+            ulong _analysedSizes = 0;
             for (long i = SizesFile.RecordCount - 1; i >= 0; --i)
             {
                 SizeEntry rec = new SizeEntry();
@@ -511,7 +539,7 @@ namespace DuplicateDestroyer
                         Console.WriteLine();
                 }
 
-                VisualGlyph((ulong)(SizesFile.RecordCount - i));
+                VisualGlyph(++_analysedSizes);
             }
 
             SizesFile.Stream.Flush(true);
@@ -734,21 +762,25 @@ namespace DuplicateDestroyer
 
                     Console.ForegroundColor = ConsoleColor.Cyan;
                     Console.Write(new String(' ', totalLog10ofEntries - strCurrentLength + 1) + menuId + ". ");
-                    DuplicateFileLog.Write(new String(' ', totalLog10ofEntries - strCurrentLength + 1) + menuId + ". ");
 
+                    bool oldestOrNewest = false;
                     if (oldestIDs.Contains(menuId))
                     {
                         Console.ForegroundColor = ConsoleColor.White;
                         Console.Write("[OLDEST] ");
                         DuplicateFileLog.Write("[OLDEST] ");
+                        oldestOrNewest = true;
                     }
                     else if (newestIDs.Contains(menuId))
                     {
                         Console.ForegroundColor = ConsoleColor.White;
                         Console.Write("[NEWEST] ");
                         DuplicateFileLog.Write("[NEWEST] ");
+                        oldestOrNewest = true;
                     }
 
+                    DuplicateFileLog.Write(new String(' ', (!oldestOrNewest ? 9 : 0) +
+                        totalLog10ofEntries - strCurrentLength + 1) + menuId + ". ");
                     Console.ResetColor();
                     Console.WriteLine(etr.Path);
                     DuplicateFileLog.WriteLine(etr.Path);
@@ -830,11 +862,12 @@ namespace DuplicateDestroyer
             return decided;
         }
 
-        static void RemoveFile(string path)
+        static bool RemoveFile(string path)
         {
             if (Verbose)
                 Console.Write("File " + path + "...");
 
+            bool success = true;
             try
             {
                 if (Verbose)
@@ -857,8 +890,11 @@ namespace DuplicateDestroyer
                 Console.ForegroundColor = ConsoleColor.Yellow;
                 Console.WriteLine(" ERROR: Unable to delete. An exception happened: " + ex.Message);
                 Console.ResetColor();
+                success = false;
                 FileRemoveException = true;
             }
+
+            return success;
         }
 
         #region Stream methods
@@ -980,14 +1016,6 @@ namespace DuplicateDestroyer
             if (difference < 0)
                 // If the move operation was to shrink, we eliminate the overhead at the end of the file.
                 Stream.SetLength(Stream.Length + difference); // (still a - :) )
-
-            // TODO: DUMP
-            //this.Stream.Seek(0, SeekOrigin.Begin);
-            //byte[] buf2 = new byte[this.Stream.Length];
-            //this.Stream.Read(buf2, 0, (int)this.Stream.Length);
-            //Console.WriteLine("File contents AFTER move:");
-            //Console.WriteLine(DuplicateDestroyer.Program2.GetDump(buf2));
-            // End TODO
         }
         #endregion
 
@@ -1062,7 +1090,6 @@ namespace DuplicateDestroyer
         // Indicate the number of files counted with visual glyphs.
         // Each marks a ten-fold increasement. So # is 10s, & is 100s, @ is 1000s, etc.
         static char[] CountVisualGlyphs = new char[] { '#', '?', '&', '@', '*', '$', '%' };
-
         private static void VisualGlyph(ulong counter)
         {
             // If verbose mode is turned off, give some visual hint for the user based on the counter

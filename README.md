@@ -1,19 +1,18 @@
 DuplicateDestroyer
 ==================
-
-DuplicateDestroyer removes duplicate files from a directory tree.
+DuplicateDestroyer removes duplicate files from a directory tree
 
 How to use?
 -----------
-* Put the executable into the top folder of the tree you want to check.
+* Put the executable into the top folder of the tree you want to check
 * Start the application. (Either by double click or from the command line: `DuplicateDestroyer.exe`)
-* DuplicateDestroyer will ask you to specify which file **to keep** in case there are duplicates. The rest of the files will be deleted.
-* Alternatively, you might specify `-o` or `-n` to auto-schedule the oldest or newest files.
+* You will be asked which files to keep or delete from a set of exact duplicates
+* Alternatively, you might specify `-o` or `-n` to auto-schedule the oldest or newest files
+* The files are deleted by the program
 
 Implications/Limitations
 ------------------------
 DuplicateDestroyer checks for duplicates by reading every file in the tree and calculating an [MD5](http://en.wikipedia.org/wiki/MD5) hash on it.
-Because this is a costly method, please refrain from running on either _directories containing massive number of files_, or _directories with really big files in it_.
 
 You should **never** run data removers without making an appropriate **backup** first.
 
@@ -23,18 +22,18 @@ Parameters
 ----------
     DuplicateDestroyer.exe
     
-    -h    Show this help text.
+    -h    Show this help text
     -v    Verbose mode
-    -d    Dry run. Only check for duplicates, but don't actually remove them."
-    -o    Automatically schedule the OLDEST file for keeping.
-    -n    Automatically schedule the NEWEST file for keeping.
+    -d    Dry run/discovery - Only check for duplicates, but don't actually remove them
+    -o    Automatically keep the OLDEST of the files
+    -n    Automatically keep the NEWEST of the files
 
 Exit codes
 ----------
     0   Program terminated normally
-    1   Exception happened while counting files or iterating the tree
-    2   One or more files failed to be deleted
-    3   Configuration error (i.e.: using both -o and -n switches)
+    1   Program failure, the internal data got corrupted
+    2   One or more files' removal failed
+    3   Configuration error
 
 License
 -------
