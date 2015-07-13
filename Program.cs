@@ -130,18 +130,18 @@ namespace DuplicateDestroyer
                 Console.WriteLine();
             }
 
-            {
-                // Remove entries from the PathsFile physically which were logically removed (marked deleted) in the previous step
-                if (Verbose)
-                {
-                    Console.WriteLine("Removing knowledge about files I don't need to check.");
-                    Console.WriteLine("(This is an internal maintenance run to speed up further operations.)");
-                }
-                PathsFile.Consolidate(new SizeFileAligner(Program.AlignSizeFilePointers));
-                PathsFile.Stream.Flush(true);
-                if (Verbose)
-                    Console.WriteLine();
-            }
+            //{
+            //    // Remove entries from the PathsFile physically which were logically removed (marked deleted) in the previous step
+            //    if (Verbose)
+            //    {
+            //        Console.WriteLine("Removing knowledge about files I don't need to check.");
+            //        Console.WriteLine("(This is an internal maintenance run to speed up further operations.)");
+            //    }
+            //    PathsFile.Consolidate(new SizeFileAligner(Program.AlignSizeFilePointers));
+            //    PathsFile.Stream.Flush(true);
+            //    if (Verbose)
+            //        Console.WriteLine();
+            //}
 
             {
                 Console.Write("Reading file contents... " + (Verbose ? "\n" : String.Empty));
@@ -434,7 +434,7 @@ namespace DuplicateDestroyer
                                 SizesFile.WriteRecord(entry);
 
                                 if (Verbose)
-                                    Console.WriteLine(" Size: " + fi.Length.HumanReadableSize() + " bytes.");
+                                    Console.WriteLine(" Size: " + fi.Length + " bytes.");
 
                                 ++FileCount;
                                 VisualGlyph(FileCount);
@@ -502,9 +502,9 @@ namespace DuplicateDestroyer
                 {
                     if (Verbose)
                         if (rec.Count == 0)
-                            Console.Write("No files with " + rec.Size.HumanReadableSize() + " size.");
+                            Console.Write("No files with " + rec.Size + " size.");
                         else if (rec.Count == 1)
-                            Console.Write("There's only 1 file with " + rec.Size.HumanReadableSize() + " size.");
+                            Console.Write("There's only 1 file with " + rec.Size + " size.");
 
                     SizesFile.DeleteRecord(rec.Size);
                     --SizeCount;
@@ -517,7 +517,7 @@ namespace DuplicateDestroyer
                             Console.ForegroundColor = ConsoleColor.Red;
                             Console.WriteLine("An error happened while analysing sizes:");
                             Console.ResetColor();
-                            Console.WriteLine("Count for size " + rec.Size.HumanReadableSize() + " is 1, but there appears to be multiple associated files to exist.");
+                            Console.WriteLine("Count for size " + rec.Size + " is 1, but there appears to be multiple associated files to exist.");
 
                             Console.ForegroundColor = ConsoleColor.Red;
                             Console.WriteLine("This indicates an error with the databank. Execution cannot continue.");
@@ -1061,29 +1061,6 @@ namespace DuplicateDestroyer
                     SizesFile.WriteRecordAt(se, i * SizeEntry.RecordSize);
                 }
             }
-        }
-
-        // Return a human-readable size for a value
-        static string[] suffices = new string[] { "B", "KiB", "MiB", "GiB", "TiB", "PiB", "EiB", "ZiB", "YiB" };
-        public static string HumanReadableSize(this long size)
-        {
-            if (size == 0)
-                return string.Format("{0}{1:0.#} {2}", null, 0, suffices[0]);
-
-            double absSize = Math.Abs(size);
-            double power = Math.Log(absSize, 1024);
-            int unit = (int)power >= suffices.Length
-                ? suffices.Length - 1
-                : (int)power;
-            double normSize = absSize / Math.Pow(1024, unit);
-
-            return string.Format(
-                "{0}{1:0.#} {2}",
-                size < 0 ? "-" : null, normSize, suffices[unit]);
-        }
-        public static string HumanReadableSize(this ulong size)
-        {
-            return ((long)size).HumanReadableSize();
         }
         #endregion
 
