@@ -124,6 +124,7 @@ namespace DuplicateDestroyer
             {
                 Console.Write("Analysing sizes... " + (Verbose ? "\n" : String.Empty));
                 AnalyseSizes();
+                SizesFile.DeleteRecord(0); // 0-byte files are ALWAYS duplicates of each other...
                 SizesFile.Stream.Flush(true);
                 PathsFile.Stream.Flush(true);
                 Console.WriteLine((!Verbose ? "\n" : String.Empty) + SizeCount + " unique file size found for " + FileCount + " files.");
